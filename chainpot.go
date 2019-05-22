@@ -12,12 +12,17 @@ const (
 )
 
 const (
+
+	// NORMAL STATE
 	T_DEPOSIT = iota
 	T_WITHDRAW
 	T_DEPOSIT_UPDATE
 	T_WITHDRAW_UPDATE
 	T_WITHDRAW_CONFIRM
 	T_DEPOSIT_CONFIRM
+
+	// ABNORMAL STATE
+	T_WITHDRAW_FAIL
 )
 
 type ChainType string
@@ -25,6 +30,9 @@ type ChainType string
 type Chainpot struct {
 	mux   sync.RWMutex
 	nodes map[string]string
+}
+
+type Config struct {
 }
 
 type ChainFunc func(poe PotEvent)
@@ -37,18 +45,15 @@ type PotEvent struct {
 }
 
 // NewChainpot gives a new chainpot entrance
-func NewChainpot() *Chainpot {
+func NewChainpot(config *Config) *Chainpot {
 	return &Chainpot{nodes: make(map[string]string)}
 }
 
 // Add add a new chain in hot deployment with no intervention to current listen loop
-func (cp *Chainpot) Register(chainType ChainType, rpcUrl string, height int64) error {
+func (cp *Chainpot) Register(chainType ChainType, height int64) error {
 	if _, ok := cp.nodes[string(chainType)]; ok {
 		return errors.New("exist " + string(chainType) + " kind! please do not add it again")
 	}
-	cp.mux.Lock()
-	cp.nodes[string(chainType)] = rpcUrl
-	cp.mux.Unlock()
 	return nil
 }
 
