@@ -1,4 +1,4 @@
-package main
+package chainpot
 
 type trieNode struct {
 	children map[byte]*trieNode
