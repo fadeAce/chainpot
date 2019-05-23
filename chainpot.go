@@ -1,64 +1,131 @@
-package main
+package chainpot
 
 import (
-	"errors"
+	"context"
+	"github.com/fadeAce/claws"
+	"math/big"
 	"sync"
+	"sync/atomic"
 )
+
+type EventType int
 
 const (
-	ETHEREUM ChainType = "eth"
-	BITCOIN  ChainType = "btc"
-	ERC20    ChainType = "erc20"
+	// NORMAL STATE
+	T_DEPOSIT EventType = iota
+	T_WITHDRAW
+	T_DEPOSIT_UPDATE
+	T_WITHDRAW_UPDATE
+	T_WITHDRAW_CONFIRM
+	T_DEPOSIT_CONFIRM
+
+	// ABNORMAL STATE
+	T_WITHDRAW_FAIL
 )
 
-type ChainType string
+type PotEvent struct {
+	Chain   string
+	Event   EventType
+	Content interface{}
+}
+
+type BlockMessage struct {
+	Hash   string
+	From   string
+	To     string
+	Fee    string
+	Amount string
+}
+
+type Filter func(msg []BlockMessage) []BlockMessage
 
 type Chainpot struct {
-	mux   sync.RWMutex
-	nodes map[string]string
+	*sync.RWMutex
+	ID           int64
+	Code         string
+	addrs        map[string]bool
+	messenger    chan []BlockMessage
+	config       *ChainOption
+	isRegistered bool
+	height       int64
+	wallet       claws.Wallet
 }
 
-type ChainFunc func(poe PotEvent)
-
-type PotEvent struct {
-	Chain ChainType
+type ChainOption struct {
+	ConfirmTimes int64
+	Code         string
 }
 
-func NewChainpot() *Chainpot {
-	return &Chainpot{nodes: make(map[string]string)}
-}
-
-// Add add a new chain in hot deployment with no intervention to current listen loop
-// input all addresses in slice to be listened also with height
-// return error if there exist
-// use rpc url to send rpc requests
-func (cp *Chainpot) Register(chainType ChainType, rpcUrl string, init []string, height int64) error {
-	if _, ok := cp.nodes[string(chainType)]; ok {
-		return errors.New("exist " + string(chainType) + " kind! please do not add it again")
+func NewChainpot(opt *ChainOption, wallet claws.Wallet) *Chainpot {
+	chain := &Chainpot{
+		RWMutex:   &sync.RWMutex{},
+		addrs:     make(map[string]bool),
+		messenger: make(chan []BlockMessage, 1024),
+		config:    opt,
+		wallet:    wallet,
 	}
-	cp.mux.Lock()
-	cp.nodes[string(chainType)] = rpcUrl
-	cp.mux.Unlock()
-	return nil
+	chain.listen()
+	return chain
 }
 
-func (cp *Chainpot) Add(chainType ChainType, init string) (int64, error) {
-	return 0, nil
-}
-
-func (cp *Chainpot) Subscribe(chainType ChainType, function ChainFunc) {
-
-}
-
-func (cp *Chainpot) Start() {
-	cp.mux.RLock()
-	for typ, _ := range cp.nodes {
-		switch ChainType(typ) {
-		case ETHEREUM:
-			go func() {
-
-			}()
+func (c *Chainpot) listen() {
+	c.wallet.NotifyHead(context.Background(), func(num *big.Int) {
+		txns, err := c.wallet.UnfoldTxs(context.Background(), num)
+		if err != nil {
+			return
 		}
+
+		// TODO check multi threads
+		if num.Int64() > c.height {
+			atomic.StoreInt64(&c.height, num.Int64())
+		}
+
+		var depMsgs = make([]*BlockMessage, 0)
+		var witMsgs = make([]*BlockMessage, 0)
+		var errMsgs = make([]*BlockMessage, 0)
+		c.RLock()
+		for i, _ := range txns {
+			var tx = txns[i]
+			var msg = &BlockMessage{
+				Hash:   tx.HexStr(),
+				Amount: tx.AmountStr(),
+				From:   tx.FromStr(),
+				To:     tx.ToStr(),
+				Fee:    tx.FeeStr(),
+			}
+
+			var _, f1 = c.addrs[msg.From]
+			var _, f2 = c.addrs[msg.To]
+			if f1 && f2 {
+				errMsgs = append(errMsgs, msg)
+			} else if f1 {
+				witMsgs = append(witMsgs, msg)
+			} else if f2 {
+				depMsgs = append(depMsgs, msg)
+			}
+		}
+		c.RUnlock()
+
+		for _, msg := range depMsgs {
+
+		}
+	})
+}
+
+func (c *Chainpot) Add(addrs []string) {
+	c.Lock()
+	for i, _ := range addrs {
+		addr := addrs[i]
+		c.addrs[addr] = true
 	}
-	cp.mux.RUnlock()
+	c.Unlock()
+}
+
+func (c *Chainpot) OnMessage(cb func(msgs []BlockMessage)) {
+	go func() {
+		for {
+			msgs := <-c.messenger
+			cb(msgs)
+		}
+	}()
 }
