@@ -1,6 +1,7 @@
 package chainpot
 
 import (
+	"encoding/json"
 	"github.com/fadeAce/claws"
 	"github.com/fadeAce/claws/types"
 	"gopkg.in/yaml.v2"
@@ -31,10 +32,12 @@ func TestNewChainpot(t *testing.T) {
 
 	var opt = &ChainOption{
 		ConfirmTimes: 7,
-		Code:"eth",
+		Chain:        "eth",
 	}
 	var chainpot = NewChainpot(opt, wallet)
-	chainpot.OnMessage(func(msgs []BlockMessage) {
-		
+	chainpot.Add([]string{"0x78aE889cd04Cb9274C2600d68CCc5058F43dB63e"})
+	chainpot.OnMessage(func(msg *PotEvent) {
+		b, _ := json.Marshal(msg)
+		println(string(b))
 	})
 }
