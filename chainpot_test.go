@@ -17,18 +17,8 @@ func TestNewChainpot(t *testing.T) {
 	}
 	var conf types.Claws
 	err = yaml.Unmarshal(cfg, &conf)
-	// first of all setup gate
 	claws.SetupGate(&conf)
 	wallet := claws.Builder.BuildWallet("eth")
-	//b := wallet.NewAddr()
-	//fmt.Println(b)
-
-	//num := big.NewInt(4419795)
-	//txns, err := wallet.UnfoldTxs(conf.Ctx, big.NewInt(4356126))
-	//for _, v := range txns {
-	//	fmt.Println("from ", v.FromStr(), " to ", v.ToStr(), " hash ", v.HexStr())
-	//	fmt.Println(" fee ", v.FeeStr(), " amount ", v.AmountStr())
-	//}
 
 	var opt = &ChainOption{
 		ConfirmTimes: 7,
@@ -36,8 +26,10 @@ func TestNewChainpot(t *testing.T) {
 	}
 	var chainpot = NewChainpot(opt, wallet)
 	chainpot.Add([]string{"0x78aE889cd04Cb9274C2600d68CCc5058F43dB63e"})
-	chainpot.OnMessage(func(msg *PotEvent) {
+	chainpot.OnMessage = func(msg *PotEvent) {
 		b, _ := json.Marshal(msg)
 		println(string(b))
-	})
+	}
+	var forever = make(chan bool)
+	<-forever
 }
