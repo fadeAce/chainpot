@@ -2,10 +2,12 @@ package chainpot
 
 import (
 	"context"
+	"fmt"
 	"github.com/fadeAce/chainpot/queue"
 	"github.com/fadeAce/claws"
 	"github.com/fadeAce/claws/types"
 	"math/big"
+	"strconv"
 	"sync"
 	"sync/atomic"
 )
@@ -29,92 +31,90 @@ const (
 type PotEvent struct {
 	Chain   string
 	Event   EventType
+	ID      int64
 	Content types.TXN
 }
 
-type BlockMessage struct {
-	Hash   string
-	From   string
-	To     string
-	Fee    string
-	Amount string
-}
-
-type Filter func(msg []BlockMessage) []BlockMessage
-
 type Chainpot struct {
 	*sync.Mutex
-	ID          int64
-	addrs       map[string]bool
-	messenger   chan *PotEvent
-	config      *ChainOption
-	height      int64
-	wallet      claws.Wallet
-	depositTxs  *queue.Queue
-	withdrawTxs *queue.Queue
-	OnMessage   func(msg *PotEvent)
+	addrs           map[string]bool
+	config          *ChainOption
+	height          int64
+	handledEndPoint bool
+	wallet          claws.Wallet
+	depositTxs      *queue.Queue
+	withdrawTxs     *queue.Queue
+	OnMessage       func(msg *PotEvent)
 }
 
 type ChainOption struct {
 	ConfirmTimes int64
 	Chain        string
+	Endpoint     int64
 }
 
 func NewChainpot(opt *ChainOption, wallet claws.Wallet) *Chainpot {
 	chain := &Chainpot{
 		Mutex:       &sync.Mutex{},
 		addrs:       make(map[string]bool),
-		messenger:   make(chan *PotEvent, 1024),
 		config:      opt,
 		wallet:      wallet,
 		depositTxs:  queue.NewQueue(1024),
 		withdrawTxs: queue.NewQueue(1024),
 	}
-	go chain.listener()
+	go func() {
+		chain.wallet.NotifyHead(context.Background(), func(num *big.Int) {
+			if num.Int64() > chain.height {
+				atomic.StoreInt64(&chain.height, num.Int64())
+			}
+			chain.handleEndpoint(chain.config.Endpoint, num.Int64())
+			chain.handleBlock(num)
+		})
+	}()
 	return chain
 }
 
-func (c *Chainpot) listener() {
-	c.wallet.NotifyHead(context.Background(), func(num *big.Int) {
-		var height = num.Int64()
-		txns, err := c.wallet.UnfoldTxs(context.Background(), num)
-		if err != nil {
-			return
-		}
+func (c *Chainpot) handleBlock(num *big.Int) {
+	var height = num.Int64()
+	txns, err := c.wallet.UnfoldTxs(context.Background(), num)
+	if err != nil {
+		return
+	}
 
-		// TODO check multi threads
-		if num.Int64() > c.height {
-			atomic.StoreInt64(&c.height, height)
+	c.Lock()
+	for i, _ := range txns {
+		var tx = txns[i]
+		var _, f1 = c.addrs[tx.FromStr()]
+		var _, f2 = c.addrs[tx.ToStr()]
+		var node = &queue.Value{TXN: tx, Height: height, Index: int64(i)}
+		if (f1 || f2) && tx.FromStr() == tx.ToStr() {
+			c.OnMessage(&PotEvent{
+				Chain: c.config.Chain,
+				ID:    getEventID(height, T_ERROR, int64(i)),
+				Event: T_ERROR,
+			})
+		} else if f1 && f2 {
+			c.withdrawTxs.PushBack(node)
+			c.depositTxs.PushBack(node)
+		} else if f1 {
+			c.withdrawTxs.PushBack(node)
+		} else if f2 {
+			c.depositTxs.PushBack(node)
 		}
+	}
+	c.emitter()
+	c.Unlock()
+}
 
-		var confirmTimes = c.height - height + 1
-		if confirmTimes > c.config.ConfirmTimes {
-			return
-		}
+func (c *Chainpot) handleEndpoint(lastHeight int64, latestHeight int64) {
+	if c.handledEndPoint || c.config.Endpoint == 0 {
+		return
+	}
 
-		c.Lock()
-		for i, _ := range txns {
-			var tx = txns[i]
-			var _, f1 = c.addrs[tx.FromStr()]
-			var _, f2 = c.addrs[tx.ToStr()]
-			var node = &queue.Value{TXN: tx, Height: height}
-			if (f1 || f2) && tx.FromStr() == tx.ToStr() {
-				c.OnMessage(&PotEvent{
-					Chain: c.config.Chain,
-					Event: T_ERROR,
-				})
-			} else if f1 && f2 {
-				c.withdrawTxs.PushBack(node)
-				c.depositTxs.PushBack(node)
-			} else if f1 {
-				c.withdrawTxs.PushBack(node)
-			} else if f2 {
-				c.depositTxs.PushBack(node)
-			}
-		}
-		c.emitter()
-		c.Unlock()
-	})
+	for i := lastHeight; i < latestHeight; i++ {
+		c.handleBlock(big.NewInt(i))
+	}
+	c.handledEndPoint = true
 }
 
 // emit events
@@ -140,6 +140,7 @@ func (c *Chainpot) emitter() {
 			msg.Event = T_DEPOSIT_UPDATE
 			c.depositTxs.PushBack(val)
 		}
+		msg.ID = getEventID(val.Height, msg.Event, val.Index)
 		c.OnMessage(msg)
 	}
 
@@ -162,15 +163,23 @@ func (c *Chainpot) emitter() {
 			msg.Event = T_WITHDRAW_UPDATE
 			c.withdrawTxs.PushBack(val)
 		}
+		msg.ID = getEventID(val.Height, msg.Event, val.Index)
 		c.OnMessage(msg)
 	}
 }
 
-func (c *Chainpot) Add(addrs []string) {
+func (c *Chainpot) Add(addrs []string) (height int64) {
 	c.Lock()
 	for i, _ := range addrs {
 		addr := addrs[i]
 		c.addrs[addr] = true
 	}
 	c.Unlock()
+	return c.height
+}
+
+func getEventID(height int64, event EventType, idx int64) int64 {
+	var str = fmt.Sprintf("%d%03d%06d", height, event, idx)
+	num, _ := strconv.Atoi(str)
+	return int64(num)
 }

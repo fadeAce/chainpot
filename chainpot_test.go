@@ -6,6 +6,10 @@ import (
 	"github.com/fadeAce/claws/types"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"testing"
 )
 
@@ -30,6 +34,9 @@ func TestNewChainpot(t *testing.T) {
 		b, _ := json.Marshal(msg)
 		println(string(b))
 	}
-	var forever = make(chan bool)
-	<-forever
+
+	quit := make(chan os.Signal)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutdown Server ...")
 }

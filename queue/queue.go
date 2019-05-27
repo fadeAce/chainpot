@@ -5,6 +5,7 @@ import "github.com/fadeAce/claws/types"
 type Value struct {
 	TXN    types.TXN
 	Height int64
+	Index  int64
 }
 type Queue struct {
 	data chan *Value
