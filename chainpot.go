@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type EventType int
@@ -38,6 +39,7 @@ type PotEvent struct {
 type Chainpot struct {
 	*sync.Mutex
 	addrs           map[string]bool
+	currentBlocks   map[int64]int64
 	config          *ChainOption
 	height          int64
 	handledEndPoint bool
@@ -55,33 +57,50 @@ type ChainOption struct {
 
 func NewChainpot(opt *ChainOption, wallet claws.Wallet) *Chainpot {
 	chain := &Chainpot{
-		Mutex:       &sync.Mutex{},
-		addrs:       make(map[string]bool),
-		config:      opt,
-		wallet:      wallet,
-		depositTxs:  queue.NewQueue(1024),
-		withdrawTxs: queue.NewQueue(1024),
+		Mutex:         &sync.Mutex{},
+		addrs:         make(map[string]bool),
+		currentBlocks: make(map[int64]int64),
+		config:        opt,
+		wallet:        wallet,
+		depositTxs:    queue.NewQueue(),
+		withdrawTxs:   queue.NewQueue(),
 	}
 	go func() {
 		chain.wallet.NotifyHead(context.Background(), func(num *big.Int) {
-			if num.Int64() > chain.height {
-				atomic.StoreInt64(&chain.height, num.Int64())
+			var height = num.Int64()
+			if height > chain.height {
+				atomic.StoreInt64(&chain.height, height)
 			}
-			chain.handleEndpoint(chain.config.Endpoint, num.Int64())
+			chain.handleEndpoint(chain.config.Endpoint, height)
 			chain.handleBlock(num)
 		})
 	}()
+
+	go SetInterval(180*time.Second, func() {
+		chain.Lock()
+		var now = time.Now().UnixNano() / 1000000
+		for k, v := range chain.currentBlocks {
+			if now-v > 180000 {
+				delete(chain.currentBlocks, k)
+			}
+		}
+		chain.Unlock()
+	})
 	return chain
 }
 
 func (c *Chainpot) handleBlock(num *big.Int) {
 	var height = num.Int64()
+	if _, exist := c.currentBlocks[height]; exist {
+		return
+	}
 	txns, err := c.wallet.UnfoldTxs(context.Background(), num)
 	if err != nil {
 		return
 	}
 
 	c.Lock()
+	c.currentBlocks[height] = time.Now().UnixNano() / 1000000
 	for i, _ := range txns {
 		var tx = txns[i]
 		var _, f1 = c.addrs[tx.FromStr()]
@@ -95,7 +114,8 @@ func (c *Chainpot) handleBlock(num *big.Int) {
 			})
 		} else if f1 && f2 {
 			c.withdrawTxs.PushBack(node)
-			c.depositTxs.PushBack(node)
+			var cp = *node
+			c.depositTxs.PushBack(&cp)
 		} else if f1 {
 			c.withdrawTxs.PushBack(node)
 		} else if f2 {
@@ -182,4 +202,11 @@ func getEventID(height int64, event EventType, idx int64) int64 {
 	var str = fmt.Sprintf("%d%03d%06d", height, event, idx)
 	num, _ := strconv.Atoi(str)
 	return int64(num)
+}
+
+func SetInterval(d time.Duration, cb func()) {
+	for {
+		cb()
+		time.Sleep(d)
+	}
 }
