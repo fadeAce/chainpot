@@ -26,11 +26,21 @@ const (
 	T_ERROR
 )
 
-type PotEvent struct {
-	Chain   string
-	Event   EventType
-	Content types.TXN
-}
+const (
+
+	// NORMAL STATE
+	T_DEPOSIT = iota
+	T_WITHDRAW
+	T_DEPOSIT_UPDATE
+	T_WITHDRAW_UPDATE
+	T_WITHDRAW_CONFIRM
+	T_DEPOSIT_CONFIRM
+
+	// ABNORMAL STATE
+	T_WITHDRAW_FAIL
+)
+
+type ChainType string
 
 type BlockMessage struct {
 	Hash   string
@@ -40,137 +50,42 @@ type BlockMessage struct {
 	Amount string
 }
 
-type Filter func(msg []BlockMessage) []BlockMessage
-
-type Chainpot struct {
-	*sync.Mutex
-	ID          int64
-	addrs       map[string]bool
-	messenger   chan *PotEvent
-	config      *ChainOption
-	height      int64
-	wallet      claws.Wallet
-	depositTxs  *queue.Queue
-	withdrawTxs *queue.Queue
-	OnMessage   func(msg *PotEvent)
+type Config struct {
 }
 
-type ChainOption struct {
-	ConfirmTimes int64
-	Chain        string
+type ChainFunc func(poe PotEvent)
+
+type PotEvent struct {
+	Chain ChainType
+	// deposit or
+	Typ     string
+	Content interface{}
 }
 
-func NewChainpot(opt *ChainOption, wallet claws.Wallet) *Chainpot {
-	chain := &Chainpot{
-		Mutex:       &sync.Mutex{},
-		addrs:       make(map[string]bool),
-		messenger:   make(chan *PotEvent, 1024),
-		config:      opt,
-		wallet:      wallet,
-		depositTxs:  queue.NewQueue(1024),
-		withdrawTxs: queue.NewQueue(1024),
+// NewChainpot gives a new chainpot entrance
+func NewChainpot(config *Config) *Chainpot {
+	return &Chainpot{nodes: make(map[string]string)}
+}
+
+// Add add a new chain in hot deployment with no intervention to current listen loop
+func (cp *Chainpot) Register(chainType ChainType, height int64) error {
+	if _, ok := cp.nodes[string(chainType)]; ok {
+		return errors.New("exist " + string(chainType) + " kind! please do not add it again")
 	}
-	go chain.listener()
-	return chain
+	return nil
 }
 
-func (c *Chainpot) listener() {
-	c.wallet.NotifyHead(context.Background(), func(num *big.Int) {
-		var height = num.Int64()
-		txns, err := c.wallet.UnfoldTxs(context.Background(), num)
-		if err != nil {
-			return
-		}
-
-		// TODO check multi threads
-		if num.Int64() > c.height {
-			atomic.StoreInt64(&c.height, height)
-		}
-
-		var confirmTimes = c.height - height + 1
-		if confirmTimes > c.config.ConfirmTimes {
-			return
-		}
-
-		c.Lock()
-		for i, _ := range txns {
-			var tx = txns[i]
-			var _, f1 = c.addrs[tx.FromStr()]
-			var _, f2 = c.addrs[tx.ToStr()]
-			var node = &queue.Value{TXN: tx, Height: height}
-			if (f1 || f2) && tx.FromStr() == tx.ToStr() {
-				c.OnMessage(&PotEvent{
-					Chain: c.config.Chain,
-					Event: T_ERROR,
-				})
-			} else if f1 && f2 {
-				c.withdrawTxs.PushBack(node)
-				c.depositTxs.PushBack(node)
-			} else if f1 {
-				c.withdrawTxs.PushBack(node)
-			} else if f2 {
-				c.depositTxs.PushBack(node)
-			}
-		}
-		c.emitter()
-		c.Unlock()
-	})
+// Add register typed address for certain chain it could be invoked by anytime
+func (cp *Chainpot) Add(chainType ChainType, init []string) (int64, error) {
+	return 0, nil
 }
 
-// emit events
-func (c *Chainpot) emitter() {
-	var m = c.depositTxs.Len()
-	for i := 0; i < m; i++ {
-		var val = c.depositTxs.Front()
-		var msg = &PotEvent{
-			Chain:   c.config.Chain,
-			Content: val.TXN,
-		}
-
-		if !c.wallet.Seek(val.TXN) {
-			continue
-		}
-
-		if c.height-val.Height+1 >= c.config.ConfirmTimes {
-			msg.Event = T_DEPOSIT_CONFIRM
-		} else if c.height-val.Height == 0 {
-			msg.Event = T_DEPOSIT
-			c.depositTxs.PushBack(val)
-		} else {
-			msg.Event = T_DEPOSIT_UPDATE
-			c.depositTxs.PushBack(val)
-		}
-		c.OnMessage(msg)
-	}
-
-	var n = c.withdrawTxs.Len()
-	for i := 0; i < n; i++ {
-		var val = c.withdrawTxs.Front()
-		var msg = &PotEvent{
-			Chain:   c.config.Chain,
-			Content: val.TXN,
-		}
-
-		if !c.wallet.Seek(val.TXN) {
-			msg.Event = T_WITHDRAW_FAIL
-		} else if c.height-val.Height+1 >= c.config.ConfirmTimes {
-			msg.Event = T_WITHDRAW_CONFIRM
-		} else if c.height-val.Height == 0 {
-			msg.Event = T_WITHDRAW
-			c.withdrawTxs.PushBack(val)
-		} else {
-			msg.Event = T_WITHDRAW_UPDATE
-			c.withdrawTxs.PushBack(val)
-		}
-		c.OnMessage(msg)
-	}
+// Subscribe never return
+// when received new event it's caught by ChainFunc
+func (cp *Chainpot) Subscribe(chainType ChainType, function ChainFunc) error {
+	return nil
 }
 
-func (c *Chainpot) Add(addrs []string) {
-	c.Lock()
-	for i, _ := range addrs {
-		addr := addrs[i]
-		c.addrs[addr] = true
-	}
-	c.Unlock()
+func (cp *Chainpot) Start() error {
+	return nil
 }
