@@ -77,7 +77,7 @@ func newChain(opt *chainOption, wallet claws.Wallet) *Chain {
 		})
 	}()
 
-	go SetInterval(180*time.Second, func() {
+	go setInterval(180*time.Second, func() {
 		chain.Lock()
 		var now = time.Now().UnixNano() / 1000000
 		for k, v := range chain.currentBlocks {
@@ -205,7 +205,7 @@ func getEventID(height int64, event EventType, idx int64) int64 {
 	return int64(num)
 }
 
-func SetInterval(d time.Duration, cb func()) {
+func setInterval(d time.Duration, cb func()) {
 	for {
 		cb()
 		time.Sleep(d)

@@ -1,6 +1,7 @@
 package chainpot
 
 import (
+	"context"
 	"github.com/fadeAce/claws"
 	"github.com/fadeAce/claws/types"
 )
@@ -11,12 +12,25 @@ type Chainpot struct {
 	OnMessage func(idx int, event *PotEvent)
 }
 
-func NewChainpot(conf *types.Claws) *Chainpot {
+type Config struct {
+	Coins []struct {
+		CoinType string `yaml:"type"`
+		// RPC location is configured to wallet builder
+		// like 127.0.0.1:8545
+		Url string `yml:"url"`
+	}
+}
+
+func NewChainpot(conf *Config) *Chainpot {
 	var obj = &Chainpot{
 		chains: make([]*Chain, 128),
 		conf:   make(map[string]*chainOption),
 	}
-	claws.SetupGate(conf)
+	claws.SetupGate(&types.Claws{
+		Ctx:     context.TODO(),
+		Version: "0.0.1",
+		Coins:   conf.Coins,
+	})
 	for _, cfg := range conf.Coins {
 		obj.conf[cfg.CoinType] = &chainOption{
 			Chain:        cfg.CoinType,
