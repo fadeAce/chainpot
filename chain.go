@@ -86,6 +86,7 @@ func (c *Chain) start() {
 			if height > c.height {
 				atomic.StoreInt64(&c.height, height)
 			}
+			println(fmt.Sprintf("Synchronizing Block: %d", height))
 			c.handleEndpoint(c.config.Endpoint, height)
 			c.handleBlock(num, false)
 		})
@@ -155,7 +156,10 @@ func (c *Chain) handleBlock(num *big.Int, useCache bool) {
 			block = append(block, NewBlockMessage(tx))
 		}
 	}
-	c.storage.saveBlock(height, block)
+
+	if !useCache {
+		c.storage.saveBlock(height, block)
+	}
 	c.emitter()
 	c.Unlock()
 }
