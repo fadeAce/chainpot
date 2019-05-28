@@ -2,59 +2,74 @@ package chainpot
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/gob"
+	"errors"
 	"fmt"
-	"os"
-	"os/signal"
-	"sync"
-	"syscall"
-	"time"
+	"github.com/boltdb/bolt"
+	"strconv"
 )
 
 type storage struct {
-	*sync.Mutex
-	Path string
-	data []interface{}
+	DB    *bolt.DB
+	Chain string
 }
 
-func newStorage(path string) *storage {
-	var obj = &storage{
-		Mutex: &sync.Mutex{},
-		Path:  path,
-		data:  make([]interface{}, 0),
+func newStorage(path string, chain string) *storage {
+	var filepath = fmt.Sprintf("%s/%s.db", path, chain)
+	db, err := bolt.Open(filepath, 0644, nil)
+	if err != nil {
+		panic(err)
 	}
-
-	go setInterval(5*time.Second, obj.save)
-
-	go func() {
-		quit := make(chan os.Signal)
-		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-		<-quit
-		obj.save()
-	}()
+	var obj = &storage{
+		DB:    db,
+		Chain: chain,
+	}
 	return obj
 }
 
-func (c *storage) save() {
-	c.Lock()
-	var t = time.Now().UTC()
-	var filename = c.Path + fmt.Sprintf("/%d%02d%02d.log", t.Year(), t.Month(), t.Day())
-	fd, _ := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-
-	var buf = bytes.NewBuffer([]byte(""))
-	for i, _ := range c.data {
-		b, _ := json.Marshal(c.data[i])
-		buf.Write(b)
-		buf.Write([]byte("\n"))
+func (c *storage) saveBlock(height int64, block []*BlockMessage) error {
+	if len(block) == 0 {
+		return nil
 	}
-	fd.Write(buf.Bytes())
-	c.data = make([]interface{}, 0)
-	fd.Close()
-	c.Unlock()
+
+	return c.DB.Update(func(tx *bolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists([]byte(c.Chain))
+		if err != nil {
+			return err
+		}
+
+		k := []byte(strconv.Itoa(int(height)))
+		return bucket.Put(k, encode(block))
+	})
 }
 
-func (c *storage) append(v interface{}) {
-	c.Lock()
-	c.data = append(c.data, v)
-	c.Unlock()
+func (c *storage) getBlock(height int64) ([]*BlockMessage, error) {
+	var bs = make([]byte, 0)
+	c.DB.View(func(tx *bolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists([]byte(c.Chain))
+		if err != nil {
+			return err
+		}
+
+		k := []byte(strconv.Itoa(int(height)))
+		bs = bucket.Get(k)
+		return nil
+	})
+	if len(bs) == 0 {
+		return nil, errors.New("not exist")
+	}
+	return decode(bs), nil
+}
+
+func encode(block []*BlockMessage) []byte {
+	var buf = bytes.NewBuffer([]byte(""))
+	gob.NewEncoder(buf).Encode(block)
+	return buf.Bytes()
+}
+
+func decode(data []byte) []*BlockMessage {
+	var obj []*BlockMessage
+	var buf = bytes.NewBuffer(data)
+	gob.NewDecoder(buf).Decode(&obj)
+	return obj
 }

@@ -1,4 +1,4 @@
-package queue
+package chainpot
 
 import "github.com/fadeAce/claws/types"
 

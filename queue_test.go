@@ -1,6 +1,8 @@
-package queue
+package chainpot
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestNewQueue(t *testing.T) {
 	var q = NewQueue()

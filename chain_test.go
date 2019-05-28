@@ -17,10 +17,16 @@ func TestNewChainpot(t *testing.T) {
 	})
 	cp.Register("eth", 0)
 	cp.Add(0, []string{"0x78aE889cd04Cb9274C2600d68CCc5058F43dB63e"})
-	cp.OnMessage = func(idx int, msg *PotEvent) {
-		b, _ := json.Marshal(msg)
+	cp.Start(func(idx int, event *PotEvent) {
+		b, _ := json.Marshal(event)
 		println(idx, string(b))
-	}
+	})
 
 	select {}
+}
+
+func TestChainpot_Add(t *testing.T) {
+	var buf = encode([]*BlockMessage{{Hash: "gydhjdbjh"}})
+	var arr = decode(buf)
+	println(string(buf), arr)
 }

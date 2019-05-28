@@ -2,8 +2,8 @@ package chainpot
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"github.com/fadeAce/chainpot/queue"
 	"github.com/fadeAce/claws"
 	"github.com/fadeAce/claws/types"
 	"math/big"
@@ -33,7 +33,7 @@ type PotEvent struct {
 	Chain   string
 	Event   EventType
 	ID      int64
-	Content types.TXN
+	Content *BlockMessage
 }
 
 type Chain struct {
@@ -44,12 +44,14 @@ type Chain struct {
 	height          int64
 	handledEndPoint bool
 	wallet          claws.Wallet
-	depositTxs      *queue.Queue
-	withdrawTxs     *queue.Queue
+	depositTxs      *Queue
+	withdrawTxs     *Queue
+	storage         *storage
 	onMessage       func(msg *PotEvent)
 }
 
 type chainOption struct {
+	LogPath      string
 	ConfirmTimes int64
 	Chain        string
 	IDX          int
@@ -63,50 +65,69 @@ func newChain(opt *chainOption, wallet claws.Wallet) *Chain {
 		currentBlocks: make(map[int64]int64),
 		config:        opt,
 		wallet:        wallet,
-		depositTxs:    queue.NewQueue(),
-		withdrawTxs:   queue.NewQueue(),
+		depositTxs:    NewQueue(),
+		withdrawTxs:   NewQueue(),
+		storage:       newStorage(opt.LogPath, opt.Chain),
 	}
+	return chain
+}
+
+func (c *Chain) start() {
 	go func() {
-		chain.wallet.NotifyHead(context.Background(), func(num *big.Int) {
+		c.wallet.NotifyHead(context.Background(), func(num *big.Int) {
 			var height = num.Int64()
-			if height > chain.height {
-				atomic.StoreInt64(&chain.height, height)
+			if height > c.height {
+				atomic.StoreInt64(&c.height, height)
 			}
-			chain.handleEndpoint(chain.config.Endpoint, height)
-			chain.handleBlock(num)
+			c.handleEndpoint(c.config.Endpoint, height)
+			c.handleBlock(num, false)
 		})
 	}()
 
 	go setInterval(180*time.Second, func() {
-		chain.Lock()
+		c.Lock()
 		var now = time.Now().UnixNano() / 1000000
-		for k, v := range chain.currentBlocks {
+		for k, v := range c.currentBlocks {
 			if now-v > 180000 {
-				delete(chain.currentBlocks, k)
+				delete(c.currentBlocks, k)
 			}
 		}
-		chain.Unlock()
+		c.Unlock()
 	})
-	return chain
 }
 
-func (c *Chain) handleBlock(num *big.Int) {
+func (c *Chain) handleBlock(num *big.Int, useCache bool) {
 	var height = num.Int64()
 	if _, exist := c.currentBlocks[height]; exist {
 		return
 	}
-	txns, err := c.wallet.UnfoldTxs(context.Background(), num)
+
+	var txns = make([]types.TXN, 0)
+	var err error
+	if useCache {
+		var block, e = c.storage.getBlock(height)
+		if e != nil {
+			for i, _ := range block {
+				txns = append(txns, block[i])
+			}
+		}
+		err = e
+	}
+	if !useCache || err != nil {
+		txns, err = c.wallet.UnfoldTxs(context.Background(), num)
+	}
 	if err != nil {
 		return
 	}
 
 	c.Lock()
 	c.currentBlocks[height] = time.Now().UnixNano() / 1000000
+	var block = make([]*BlockMessage, 0)
 	for i, _ := range txns {
 		var tx = txns[i]
 		var _, f1 = c.addrs[tx.FromStr()]
 		var _, f2 = c.addrs[tx.ToStr()]
-		var node = &queue.Value{TXN: tx, Height: height, Index: int64(i)}
+		var node = &Value{TXN: tx, Height: height, Index: int64(i)}
 		if (f1 || f2) && tx.FromStr() == tx.ToStr() {
 			c.onMessage(&PotEvent{
 				Chain: c.config.Chain,
@@ -122,7 +143,12 @@ func (c *Chain) handleBlock(num *big.Int) {
 		} else if f2 {
 			c.depositTxs.PushBack(node)
 		}
+
+		if f1 || f2 {
+			block = append(block, NewBlockMessage(tx))
+		}
 	}
+	c.storage.saveBlock(height, block)
 	c.emitter()
 	c.Unlock()
 }
@@ -133,7 +159,7 @@ func (c *Chain) handleEndpoint(lastHeight int64, latestHeight int64) {
 	}
 
 	for i := lastHeight; i < latestHeight; i++ {
-		c.handleBlock(big.NewInt(i))
+		c.handleBlock(big.NewInt(i), true)
 	}
 	c.handledEndPoint = true
 }
@@ -145,9 +171,10 @@ func (c *Chain) emitter() {
 		var val = c.depositTxs.Front()
 		var msg = &PotEvent{
 			Chain:   c.config.Chain,
-			Content: val.TXN,
+			Content: NewBlockMessage(val.TXN),
 		}
 
+		//var tx = types.TXN(inter).SetStr()
 		if !c.wallet.Seek(val.TXN) {
 			continue
 		}
@@ -170,7 +197,7 @@ func (c *Chain) emitter() {
 		var val = c.withdrawTxs.Front()
 		var msg = &PotEvent{
 			Chain:   c.config.Chain,
-			Content: val.TXN,
+			Content: NewBlockMessage(val.TXN),
 		}
 
 		if !c.wallet.Seek(val.TXN) {
@@ -189,14 +216,17 @@ func (c *Chain) emitter() {
 	}
 }
 
-func (c *Chain) add(addrs []string) (height int64) {
+func (c *Chain) add(addrs []string) (height int64, err error) {
 	c.Lock()
+	defer c.Unlock()
 	for i, _ := range addrs {
 		addr := addrs[i]
+		if _, exist := c.addrs[addr]; exist {
+			return 0, errors.New("repeat add")
+		}
 		c.addrs[addr] = true
 	}
-	c.Unlock()
-	return c.height
+	return c.height, nil
 }
 
 func getEventID(height int64, event EventType, idx int64) int64 {

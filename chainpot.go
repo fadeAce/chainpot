@@ -2,16 +2,17 @@ package chainpot
 
 import (
 	"context"
+	"errors"
 	"github.com/fadeAce/claws"
 	"github.com/fadeAce/claws/types"
 	"path/filepath"
 )
 
 type Chainpot struct {
-	storage   *storage
 	chains    []*Chain
 	conf      map[string]*chainOption
-	OnMessage func(idx int, event *PotEvent)
+	logPath   string
+	onMessage MessageHandler
 }
 
 type Config struct {
@@ -23,6 +24,8 @@ type Config struct {
 	}
 }
 
+type MessageHandler func(idx int, event *PotEvent)
+
 func NewChainpot(conf *Config) *Chainpot {
 	var obj = &Chainpot{
 		chains: make([]*Chain, 128),
@@ -31,7 +34,7 @@ func NewChainpot(conf *Config) *Chainpot {
 	if path, err := filepath.Abs(conf.LogPath); err != nil {
 		panic(err)
 	} else {
-		obj.storage = newStorage(path)
+		obj.logPath = path
 	}
 
 	claws.SetupGate(&types.Claws{
@@ -48,10 +51,15 @@ func NewChainpot(conf *Config) *Chainpot {
 	return obj
 }
 
-func (c *Chainpot) Register(chainName string, endpoint int64) {
+func (c *Chainpot) Register(chainName string, endpoint int64) error {
 	var opt, exist = c.conf[chainName]
+	opt.LogPath = c.logPath
 	if !exist {
-		return
+		return errors.New("configure not exist")
+	}
+
+	if c.chains[opt.IDX] != nil {
+		return errors.New("repeat register")
 	}
 
 	opt.Endpoint = endpoint
@@ -59,11 +67,21 @@ func (c *Chainpot) Register(chainName string, endpoint int64) {
 	var chain = newChain(opt, wallet)
 	c.chains[opt.IDX] = chain
 	chain.onMessage = func(msg *PotEvent) {
-		c.OnMessage(opt.IDX, msg)
-		c.storage.append(msg)
+		c.onMessage(opt.IDX, msg)
 	}
+
+	return nil
 }
 
-func (c *Chainpot) Add(idx int, addrs []string) (height int64) {
+func (c *Chainpot) Add(idx int, addrs []string) (height int64, err error) {
 	return c.chains[idx].add(addrs)
+}
+
+func (c *Chainpot) Start(fn MessageHandler) {
+	c.onMessage = fn
+	for _, chain := range c.chains {
+		if chain != nil {
+			chain.start()
+		}
+	}
 }
