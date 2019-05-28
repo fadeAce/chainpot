@@ -1,4 +1,5 @@
 *.iml
 .idea/
 test/
+log/
 .DS_Store

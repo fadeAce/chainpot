@@ -4,20 +4,22 @@ import (
 	"context"
 	"github.com/fadeAce/claws"
 	"github.com/fadeAce/claws/types"
+	"path/filepath"
 )
 
 type Chainpot struct {
+	storage   *storage
 	chains    []*Chain
 	conf      map[string]*chainOption
 	OnMessage func(idx int, event *PotEvent)
 }
 
 type Config struct {
-	Coins []struct {
+	LogPath string
+	Coins   []struct {
 		CoinType string `yaml:"type"`
-		// RPC location is configured to wallet builder
-		// like 127.0.0.1:8545
-		Url string `yml:"url"`
+		Url      string `yml:"url"`
+		//Idx      string `yml:"idx"`
 	}
 }
 
@@ -26,6 +28,12 @@ func NewChainpot(conf *Config) *Chainpot {
 		chains: make([]*Chain, 128),
 		conf:   make(map[string]*chainOption),
 	}
+	if path, err := filepath.Abs(conf.LogPath); err != nil {
+		panic(err)
+	} else {
+		obj.storage = newStorage(path)
+	}
+
 	claws.SetupGate(&types.Claws{
 		Ctx:     context.TODO(),
 		Version: "0.0.1",
@@ -52,6 +60,7 @@ func (c *Chainpot) Register(chainName string, endpoint int64) {
 	c.chains[opt.IDX] = chain
 	chain.onMessage = func(msg *PotEvent) {
 		c.OnMessage(opt.IDX, msg)
+		c.storage.append(msg)
 	}
 }
 
