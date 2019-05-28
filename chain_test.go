@@ -26,7 +26,9 @@ func TestNewChainpot(t *testing.T) {
 }
 
 func TestChainpot_Add(t *testing.T) {
-	var buf = encode([]*BlockMessage{{Hash: "gydhjdbjh"}})
-	var arr = decode(buf)
-	println(string(buf), arr)
+	var s = newStorage("/Users/caster/go/src/github.com/fadeAce/chainpot/log", "eth")
+	_, err := s.getDB(4460424)
+	if err != nil {
+		println(err.Error())
+	}
 }

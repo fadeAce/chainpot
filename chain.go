@@ -7,6 +7,7 @@ import (
 	"github.com/fadeAce/claws"
 	"github.com/fadeAce/claws/types"
 	"math/big"
+	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -69,6 +70,12 @@ func newChain(opt *chainOption, wallet claws.Wallet) *Chain {
 		withdrawTxs:   NewQueue(),
 		storage:       newStorage(opt.LogPath, opt.Chain),
 	}
+
+	var fp = opt.LogPath + "/" + opt.Chain
+	if _, err := os.Stat(fp); err != nil {
+		os.Mkdir(fp, 0755)
+	}
+
 	return chain
 }
 

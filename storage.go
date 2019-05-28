@@ -6,25 +6,42 @@ import (
 	"errors"
 	"fmt"
 	"github.com/boltdb/bolt"
+	"math"
 	"strconv"
+	"sync"
 )
 
 type storage struct {
-	DB    *bolt.DB
+	*sync.Mutex
+	DBS   []*bolt.DB
+	Path  string
 	Chain string
 }
 
 func newStorage(path string, chain string) *storage {
-	var filepath = fmt.Sprintf("%s/%s.db", path, chain)
-	db, err := bolt.Open(filepath, 0644, nil)
-	if err != nil {
-		panic(err)
-	}
 	var obj = &storage{
-		DB:    db,
+		DBS:   make([]*bolt.DB, 1000),
+		Path:  path + "/" + chain,
 		Chain: chain,
+		Mutex: &sync.Mutex{},
 	}
 	return obj
+}
+
+func (c *storage) getDB(height int64) (db *bolt.DB, err error) {
+	var idx = int(math.Ceil(float64(height) / 1000000))
+	if c.DBS[idx] == nil {
+		var filename = fmt.Sprintf("%s/%s_%04d.db", c.Path, c.Chain, idx)
+		db, err = bolt.Open(filename, 0755, nil)
+		if err == nil {
+			c.Lock()
+			c.DBS[idx] = db
+			c.Unlock()
+		}
+		return
+	} else {
+		return c.DBS[idx], nil
+	}
 }
 
 func (c *storage) saveBlock(height int64, block []*BlockMessage) error {
@@ -32,7 +49,13 @@ func (c *storage) saveBlock(height int64, block []*BlockMessage) error {
 		return nil
 	}
 
-	return c.DB.Update(func(tx *bolt.Tx) error {
+	var db, err = c.getDB(height)
+	if err != nil {
+		println(err.Error())
+		return err
+	}
+
+	return db.Update(func(tx *bolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists([]byte(c.Chain))
 		if err != nil {
 			return err
@@ -45,7 +68,12 @@ func (c *storage) saveBlock(height int64, block []*BlockMessage) error {
 
 func (c *storage) getBlock(height int64) ([]*BlockMessage, error) {
 	var bs = make([]byte, 0)
-	c.DB.View(func(tx *bolt.Tx) error {
+	var db, err = c.getDB(height)
+	if err != nil {
+		return nil, err
+	}
+
+	db.View(func(tx *bolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists([]byte(c.Chain))
 		if err != nil {
 			return err
