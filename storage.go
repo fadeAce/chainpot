@@ -1,8 +1,7 @@
 package chainpot
 
 import (
-	"bytes"
-	"encoding/gob"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/boltdb/bolt"
@@ -89,14 +88,12 @@ func (c *storage) getBlock(height int64) ([]*BlockMessage, error) {
 }
 
 func encode(block []*BlockMessage) []byte {
-	var buf = bytes.NewBuffer([]byte(""))
-	gob.NewEncoder(buf).Encode(block)
-	return buf.Bytes()
+	data, _ := json.Marshal(block)
+	return data
 }
 
 func decode(data []byte) []*BlockMessage {
-	var obj []*BlockMessage
-	var buf = bytes.NewBuffer(data)
-	gob.NewDecoder(buf).Decode(&obj)
+	var obj = make([]*BlockMessage, 0)
+	json.Unmarshal(data, &obj)
 	return obj
 }
