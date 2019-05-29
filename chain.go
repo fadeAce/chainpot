@@ -10,7 +10,6 @@ import (
 	"os"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -86,6 +85,7 @@ func newChain(opt *chainOption, wallet claws.Wallet) *Chain {
 
 func (c *Chain) start() {
 	var notice = make(chan int64)
+
 	go func() {
 		c.wallet.NotifyHead(c.ctx, func(num *big.Int) {
 			notice <- num.Int64()
@@ -96,24 +96,26 @@ func (c *Chain) start() {
 		var ticker = time.NewTicker(180 * time.Second)
 		defer ticker.Stop()
 
-		select {
-		case <-c.ctx.Done():
-			println(fmt.Sprintf("%s stopped", c.config.Chain))
-			return
-		case <-ticker.C:
-			var now = time.Now().UnixNano() / 1000000
-			for k, v := range c.currentBlocks {
-				if now-v > 180000 {
-					delete(c.currentBlocks, k)
+		for {
+			select {
+			case <-c.ctx.Done():
+				println(fmt.Sprintf("%s stopped", c.config.Chain))
+				return
+			case <-ticker.C:
+				var now = time.Now().UnixNano() / 1000000
+				for k, v := range c.currentBlocks {
+					if now-v > 180000 {
+						delete(c.currentBlocks, k)
+					}
 				}
+			case height := <-notice:
+				if height > c.height {
+					c.height = height
+				}
+				println(fmt.Sprintf("Synchronizing Block: %d", height))
+				c.handleEndpoint(c.config.Endpoint, height)
+				c.handleBlock(big.NewInt(height), false)
 			}
-		case height := <-notice:
-			if height > c.height {
-				atomic.StoreInt64(&c.height, height)
-			}
-			println(fmt.Sprintf("Synchronizing Block: %d", height))
-			c.handleEndpoint(c.config.Endpoint, height)
-			c.handleBlock(big.NewInt(height), false)
 		}
 	}()
 }
