@@ -9,11 +9,7 @@ type Value struct {
 }
 
 type Queue struct {
-	tail  *Queue
-	prev  *Queue
-	next  *Queue
-	len   int
-	value *Value
+	data []*Value
 }
 
 func NewQueue() *Queue {
@@ -22,41 +18,15 @@ func NewQueue() *Queue {
 }
 
 func (c *Queue) Len() int {
-	return c.len
+	return len(c.data)
 }
 
 func (c *Queue) PushBack(v *Value) {
-	if c.value != nil {
-		var node = &Queue{
-			prev:  c.tail,
-			value: v,
-			len:   c.len,
-		}
-		node.len = c.len
-		node.tail = node
-		c.tail.next = node
-		c.tail = node
-	} else {
-		c.value = v
-		c.tail = c
-	}
-	c.len++
+	c.data = append(c.data, v)
 }
 
-func (c *Queue) Front() (val *Value) {
-	if c.next != nil {
-		val = c.value
-		var newFront = c.next
-		c.value = newFront.value
-		c.next = newFront.next
-		c.prev = nil
-	} else {
-		val = c.value
-		c.value = nil
-		c.tail = nil
-	}
-	if c.len > 0 {
-		c.len--
-	}
-	return
+func (c *Queue) Front() *Value {
+	var val = c.data[0]
+	c.data = c.data[1:c.Len()]
+	return val
 }

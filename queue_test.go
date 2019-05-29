@@ -13,7 +13,7 @@ func TestNewQueue(t *testing.T) {
 
 	for q.Len() > 0 {
 		var cur = q.Front()
-		println(cur.Index, q.Len())
+		println(cur.Index)
 	}
 }
 
