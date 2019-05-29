@@ -8,6 +8,12 @@ import (
 	"path/filepath"
 )
 
+const (
+	CHAIN_ETH = iota
+	CHAIN_BTC
+	CHAIN_ERC20
+)
+
 type Chainpot struct {
 	chains    []*Chain
 	conf      map[string]*chainOption
@@ -84,4 +90,22 @@ func (c *Chainpot) Start(fn MessageHandler) {
 			chain.start()
 		}
 	}
+}
+
+// // if chain matched idx has been registered return true otherwise return false todo
+func (c *Chainpot) Ready(idx int) bool {
+	return false
+}
+
+// reset chain which matched with given []idx
+// if []idx is nil reset all
+func (c *Chainpot) Reset(idx ...int) {
+	if len(idx) == 0 {
+		// reset all todo
+	}
+	/* todo reset each one
+	for _, v := range idx {
+
+	}
+	*/
 }
