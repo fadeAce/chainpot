@@ -51,7 +51,6 @@ func (c *storage) saveBlock(height int64, block []*BlockMessage) error {
 
 	var db, err = c.getDB(height)
 	if err != nil {
-		println(err.Error())
 		return err
 	}
 

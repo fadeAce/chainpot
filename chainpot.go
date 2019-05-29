@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 )
 
+type ChainType int
+
 const (
-	CHAIN_ETH = iota
+	CHAIN_ETH ChainType = iota
 	CHAIN_BTC
 	CHAIN_ERC20
 )
@@ -92,20 +94,25 @@ func (c *Chainpot) Start(fn MessageHandler) {
 	}
 }
 
-// // if chain matched idx has been registered return true otherwise return false todo
+// // if chain matched idx has been registered return true otherwise return false
 func (c *Chainpot) Ready(idx int) bool {
-	return false
+	return c.chains[idx] != nil
 }
 
 // reset chain which matched with given []idx
-// if []idx is nil reset all
+// if []idx is empty reset all
 func (c *Chainpot) Reset(idx ...int) {
 	if len(idx) == 0 {
-		// reset all todo
+		for i, _ := range c.chains {
+			if c.chains[i] != nil {
+				c.chains[i].cancel()
+			}
+		}
 	}
-	/* todo reset each one
-	for _, v := range idx {
 
+	for _, v := range idx {
+		if c.chains[v] != nil {
+			c.chains[v].cancel()
+		}
 	}
-	*/
 }

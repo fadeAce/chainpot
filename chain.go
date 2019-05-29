@@ -49,6 +49,8 @@ type Chain struct {
 	withdrawTxs     *Queue
 	storage         *storage
 	onMessage       func(msg *PotEvent)
+	ctx             context.Context
+	cancel          context.CancelFunc
 }
 
 type chainOption struct {
@@ -60,6 +62,7 @@ type chainOption struct {
 }
 
 func newChain(opt *chainOption, wallet claws.Wallet) *Chain {
+	ctx, cancel := context.WithCancel(context.Background())
 	chain := &Chain{
 		Mutex:         &sync.Mutex{},
 		addrs:         make(map[string]bool),
@@ -69,6 +72,8 @@ func newChain(opt *chainOption, wallet claws.Wallet) *Chain {
 		depositTxs:    NewQueue(),
 		withdrawTxs:   NewQueue(),
 		storage:       newStorage(opt.LogPath, opt.Chain),
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 
 	var fp = opt.LogPath + "/" + opt.Chain
@@ -80,28 +85,37 @@ func newChain(opt *chainOption, wallet claws.Wallet) *Chain {
 }
 
 func (c *Chain) start() {
+	var notice = make(chan int64)
 	go func() {
-		c.wallet.NotifyHead(context.Background(), func(num *big.Int) {
-			var height = num.Int64()
+		c.wallet.NotifyHead(c.ctx, func(num *big.Int) {
+			notice <- num.Int64()
+		})
+	}()
+
+	go func() {
+		var ticker = time.NewTicker(180 * time.Second)
+		defer ticker.Stop()
+
+		select {
+		case <-c.ctx.Done():
+			println(fmt.Sprintf("%s stopped", c.config.Chain))
+			return
+		case <-ticker.C:
+			var now = time.Now().UnixNano() / 1000000
+			for k, v := range c.currentBlocks {
+				if now-v > 180000 {
+					delete(c.currentBlocks, k)
+				}
+			}
+		case height := <-notice:
 			if height > c.height {
 				atomic.StoreInt64(&c.height, height)
 			}
 			println(fmt.Sprintf("Synchronizing Block: %d", height))
 			c.handleEndpoint(c.config.Endpoint, height)
-			c.handleBlock(num, false)
-		})
-	}()
-
-	go setInterval(180*time.Second, func() {
-		c.Lock()
-		var now = time.Now().UnixNano() / 1000000
-		for k, v := range c.currentBlocks {
-			if now-v > 180000 {
-				delete(c.currentBlocks, k)
-			}
+			c.handleBlock(big.NewInt(height), false)
 		}
-		c.Unlock()
-	})
+	}()
 }
 
 func (c *Chain) handleBlock(num *big.Int, useCache bool) {
@@ -128,7 +142,6 @@ func (c *Chain) handleBlock(num *big.Int, useCache bool) {
 		return
 	}
 
-	c.Lock()
 	c.currentBlocks[height] = time.Now().UnixNano() / 1000000
 	var block = make([]*BlockMessage, 0)
 	for i, _ := range txns {
@@ -161,15 +174,14 @@ func (c *Chain) handleBlock(num *big.Int, useCache bool) {
 		c.storage.saveBlock(height, block)
 	}
 	c.emitter()
-	c.Unlock()
 }
 
-func (c *Chain) handleEndpoint(lastHeight int64, latestHeight int64) {
-	if c.handledEndPoint || c.config.Endpoint == 0 {
+func (c *Chain) handleEndpoint(endpoint int64, currentHeight int64) {
+	if c.handledEndPoint || c.config.Endpoint <= 0 {
 		return
 	}
 
-	for i := lastHeight; i < latestHeight; i++ {
+	for i := endpoint; i < currentHeight; i++ {
 		c.handleBlock(big.NewInt(i), true)
 	}
 	c.handledEndPoint = true
@@ -244,11 +256,4 @@ func getEventID(height int64, event EventType, idx int64) int64 {
 	var str = fmt.Sprintf("%d%03d%06d", height, event, idx)
 	num, _ := strconv.Atoi(str)
 	return int64(num)
-}
-
-func setInterval(d time.Duration, cb func()) {
-	for {
-		cb()
-		time.Sleep(d)
-	}
 }

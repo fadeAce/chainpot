@@ -21,7 +21,6 @@ func TestNewChainpot(t *testing.T) {
 		b, _ := json.Marshal(event)
 		println(idx, string(b))
 	})
-
 	select {}
 }
 
