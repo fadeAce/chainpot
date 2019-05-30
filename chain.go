@@ -39,7 +39,7 @@ type PotEvent struct {
 type Chain struct {
 	*sync.Mutex
 	addrs           map[string]bool
-	currentBlocks   map[int64]int64
+	syncedTxs       map[string]int64
 	config          *chainOption
 	height          int64
 	handledEndPoint bool
@@ -63,16 +63,16 @@ type chainOption struct {
 func newChain(opt *chainOption, wallet claws.Wallet) *Chain {
 	ctx, cancel := context.WithCancel(context.Background())
 	chain := &Chain{
-		Mutex:         &sync.Mutex{},
-		addrs:         make(map[string]bool),
-		currentBlocks: make(map[int64]int64),
-		config:        opt,
-		wallet:        wallet,
-		depositTxs:    NewQueue(),
-		withdrawTxs:   NewQueue(),
-		storage:       newStorage(opt.LogPath, opt.Chain),
-		ctx:           ctx,
-		cancel:        cancel,
+		Mutex:       &sync.Mutex{},
+		addrs:       make(map[string]bool),
+		syncedTxs:   make(map[string]int64),
+		config:      opt,
+		wallet:      wallet,
+		depositTxs:  NewQueue(),
+		withdrawTxs: NewQueue(),
+		storage:     newStorage(opt.LogPath, opt.Chain),
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 
 	var fp = opt.LogPath + "/" + opt.Chain
@@ -103,9 +103,9 @@ func (c *Chain) start() {
 				return
 			case <-ticker.C:
 				var now = time.Now().UnixNano() / 1000000
-				for k, v := range c.currentBlocks {
+				for k, v := range c.syncedTxs {
 					if now-v > 180000 {
-						delete(c.currentBlocks, k)
+						delete(c.syncedTxs, k)
 					}
 				}
 			case height := <-notice:
@@ -122,10 +122,6 @@ func (c *Chain) start() {
 
 func (c *Chain) handleBlock(num *big.Int, useCache bool) {
 	var height = num.Int64()
-	if _, exist := c.currentBlocks[height]; exist {
-		return
-	}
-
 	var txns = make([]types.TXN, 0)
 	var err error
 	if useCache {
@@ -144,12 +140,20 @@ func (c *Chain) handleBlock(num *big.Int, useCache bool) {
 		return
 	}
 
-	c.currentBlocks[height] = time.Now().UnixNano() / 1000000
 	var block = make([]*BlockMessage, 0)
 	for i, _ := range txns {
 		var tx = txns[i]
 		var _, f1 = c.addrs[tx.FromStr()]
 		var _, f2 = c.addrs[tx.ToStr()]
+		if f1 || f2 {
+			if _, exist := c.syncedTxs[tx.HexStr()]; exist {
+				continue
+			} else {
+				block = append(block, NewBlockMessage(tx))
+				c.syncedTxs[tx.HexStr()] = time.Now().UnixNano() / 1000000
+			}
+		}
+
 		var node = &Value{TXN: tx, Height: height, Index: int64(i)}
 		if (f1 || f2) && tx.FromStr() == tx.ToStr() {
 			c.onMessage(&PotEvent{
@@ -165,10 +169,6 @@ func (c *Chain) handleBlock(num *big.Int, useCache bool) {
 			c.withdrawTxs.PushBack(node)
 		} else if f2 {
 			c.depositTxs.PushBack(node)
-		}
-
-		if f1 || f2 {
-			block = append(block, NewBlockMessage(tx))
 		}
 	}
 
@@ -199,13 +199,11 @@ func (c *Chain) emitter() {
 			Content: NewBlockMessage(val.TXN),
 		}
 
-		//var tx = types.TXN(inter).SetStr()
-		if !c.wallet.Seek(val.TXN) {
-			continue
-		}
-
 		if c.height-val.Height+1 >= c.config.ConfirmTimes {
 			msg.Event = T_DEPOSIT_CONFIRM
+			if !c.wallet.Seek(val.TXN) {
+				continue
+			}
 		} else if c.height-val.Height == 0 {
 			msg.Event = T_DEPOSIT
 			c.depositTxs.PushBack(val)
@@ -225,10 +223,11 @@ func (c *Chain) emitter() {
 			Content: NewBlockMessage(val.TXN),
 		}
 
-		if !c.wallet.Seek(val.TXN) {
-			msg.Event = T_WITHDRAW_FAIL
-		} else if c.height-val.Height+1 >= c.config.ConfirmTimes {
+		if c.height-val.Height+1 >= c.config.ConfirmTimes {
 			msg.Event = T_WITHDRAW_CONFIRM
+			if !c.wallet.Seek(val.TXN) {
+				msg.Event = T_WITHDRAW_FAIL
+			}
 		} else if c.height-val.Height == 0 {
 			msg.Event = T_WITHDRAW
 			c.withdrawTxs.PushBack(val)

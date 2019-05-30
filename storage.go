@@ -60,6 +60,19 @@ func (c *storage) saveBlock(height int64, block []*BlockMessage) error {
 		}
 
 		k := []byte(strconv.Itoa(int(height)))
+		if oldBlock, err := c.getBlock(height); err == nil {
+			var m = make(map[string]*BlockMessage)
+			for _, item := range oldBlock {
+				m[item.Hash] = item
+			}
+			for _, item := range block {
+				m[item.Hash] = item
+			}
+			block = make([]*BlockMessage, 0)
+			for _, item := range m {
+				block = append(block, item)
+			}
+		}
 		return bucket.Put(k, encode(block))
 	})
 }

@@ -2,6 +2,7 @@ package chainpot
 
 import (
 	"encoding/json"
+	"github.com/boltdb/bolt"
 	"testing"
 )
 
@@ -21,13 +22,18 @@ func TestNewChainpot(t *testing.T) {
 		b, _ := json.Marshal(event)
 		println(idx, string(b))
 	})
-	select {}
+	forever := make(chan bool)
+	<-forever
 }
 
 func TestChainpot_Add(t *testing.T) {
 	var s = newStorage("/Users/caster/go/src/github.com/fadeAce/chainpot/log", "eth")
-	_, err := s.getDB(4460424)
-	if err != nil {
-		println(err.Error())
-	}
+	db, _ := s.getDB(4460424)
+	db.View(func(tx *bolt.Tx) error {
+		tx.Bucket([]byte("eth")).ForEach(func(k, v []byte) error {
+			println(string(k), string(v))
+			return nil
+		})
+		return nil
+	})
 }
