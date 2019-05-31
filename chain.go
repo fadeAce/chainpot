@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -97,9 +98,7 @@ func (c *Chain) start() {
 		for {
 			select {
 			case <-c.ctx.Done():
-				saveCacheConfig(c.config.Chain, &cacheConfig{
-					EndPoint: c.height,
-				})
+				saveCacheConfig(c.config.Chain, &cacheConfig{EndPoint: c.height,})
 				wg.Done()
 				println(fmt.Sprintf("Exit %s, endpoint: %d", c.config.Chain, c.height))
 				return
@@ -114,6 +113,7 @@ func (c *Chain) start() {
 				height := num.Int64()
 				if height > c.height {
 					c.height = height
+					saveCacheConfig(c.config.Chain, &cacheConfig{EndPoint: c.height,})
 				}
 				c.syncEndpoint(c.config.Endpoint, height)
 				c.syncBlock(num)
@@ -129,7 +129,7 @@ func (c *Chain) stop() {
 
 func (c *Chain) syncBlock(num *big.Int) {
 	var height = num.Int64()
-	println(fmt.Sprintf("Synchronizing Block: %d", height))
+	println(fmt.Sprintf("%s Synchronizing Block: %d", strings.ToUpper(c.config.Chain), height))
 	txns, err := c.wallet.UnfoldTxs(context.Background(), num)
 	if err != nil {
 		return
