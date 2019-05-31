@@ -82,11 +82,7 @@ func (c *storage) saveBlock(height int64, block []*BlockMessage) error {
 	}
 
 	return db.Update(func(tx *bolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists([]byte(c.Chain))
-		if err != nil {
-			return err
-		}
-
+		bucket := tx.Bucket([]byte(c.Chain))
 		k := []byte(strconv.Itoa(int(height)))
 		if oldBlock, err := c.getBlock(height); err == nil {
 			var m = make(map[string]*BlockMessage)

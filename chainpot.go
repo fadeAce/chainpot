@@ -18,8 +18,12 @@ const (
 )
 
 var (
-	waitExit *sync.WaitGroup
+	wg *sync.WaitGroup
 )
+
+func init() {
+	wg = &sync.WaitGroup{}
+}
 
 type Chainpot struct {
 	chains    []*Chain
@@ -39,7 +43,6 @@ type Config struct {
 type MessageHandler func(idx int, event *PotEvent)
 
 func NewChainpot(conf *Config) *Chainpot {
-	waitExit = &sync.WaitGroup{}
 	var obj = &Chainpot{
 		chains: make([]*Chain, 128),
 		conf:   make(map[string]*chainOption),
@@ -124,5 +127,5 @@ func (c *Chainpot) Reset(idx ...int) {
 }
 
 func WaitExit() {
-	waitExit.Wait()
+	wg.Wait()
 }

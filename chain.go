@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/fadeAce/claws"
-	"github.com/fadeAce/claws/types"
 	"math/big"
 	"os"
 	"strconv"
@@ -38,18 +37,19 @@ type PotEvent struct {
 
 type Chain struct {
 	*sync.Mutex
-	addrs           map[string]bool
-	syncedTxs       map[string]int64
-	config          *chainOption
-	height          int64
-	handledEndPoint bool
-	wallet          claws.Wallet
-	depositTxs      *Queue
-	withdrawTxs     *Queue
-	storage         *storage
-	onMessage       func(msg *PotEvent)
-	ctx             context.Context
-	cancel          context.CancelFunc
+	addrs          map[string]bool
+	syncedTxs      map[string]int64
+	config         *chainOption
+	height         int64
+	syncedEndPoint bool
+	wallet         claws.Wallet
+	depositTxs     *Queue
+	withdrawTxs    *Queue
+	storage        *storage
+	noticer        chan *big.Int
+	onMessage      func(msg *PotEvent)
+	ctx            context.Context
+	cancel         context.CancelFunc
 }
 
 type chainOption struct {
@@ -70,6 +70,7 @@ func newChain(opt *chainOption, wallet claws.Wallet) *Chain {
 		depositTxs:  NewQueue(),
 		withdrawTxs: NewQueue(),
 		storage:     newStorage(opt.Chain),
+		noticer:     make(chan *big.Int, 1024),
 		ctx:         ctx,
 		cancel:      cancel,
 	}
@@ -83,11 +84,9 @@ func newChain(opt *chainOption, wallet claws.Wallet) *Chain {
 }
 
 func (c *Chain) start() {
-	var notice = make(chan int64)
-
 	go func() {
 		c.wallet.NotifyHead(c.ctx, func(num *big.Int) {
-			notice <- num.Int64()
+			c.noticer <- num
 		})
 	}()
 
@@ -101,7 +100,7 @@ func (c *Chain) start() {
 				saveCacheConfig(c.config.Chain, &cacheConfig{
 					EndPoint: c.height,
 				})
-				waitExit.Done()
+				wg.Done()
 				println(fmt.Sprintf("Exit %s, endpoint: %d", c.config.Chain, c.height))
 				return
 			case <-ticker.C:
@@ -111,39 +110,27 @@ func (c *Chain) start() {
 						delete(c.syncedTxs, k)
 					}
 				}
-			case height := <-notice:
+			case num := <-c.noticer:
+				height := num.Int64()
 				if height > c.height {
 					c.height = height
 				}
-				c.handleEndpoint(c.config.Endpoint, height)
-				c.handleBlock(big.NewInt(height), false)
+				c.syncEndpoint(c.config.Endpoint, height)
+				c.syncBlock(num)
 			}
 		}
 	}()
 }
 
 func (c *Chain) stop() {
-	waitExit.Add(1)
+	wg.Add(1)
 	c.cancel()
 }
 
-func (c *Chain) handleBlock(num *big.Int, useCache bool) {
+func (c *Chain) syncBlock(num *big.Int) {
 	var height = num.Int64()
 	println(fmt.Sprintf("Synchronizing Block: %d", height))
-	var txns = make([]types.TXN, 0)
-	var err error
-	if useCache {
-		var block, e = c.storage.getBlock(height)
-		if e != nil {
-			for i, _ := range block {
-				txns = append(txns, block[i])
-			}
-		}
-		err = e
-	}
-	if !useCache || err != nil {
-		txns, err = c.wallet.UnfoldTxs(context.Background(), num)
-	}
+	txns, err := c.wallet.UnfoldTxs(context.Background(), num)
 	if err != nil {
 		return
 	}
@@ -180,21 +167,19 @@ func (c *Chain) handleBlock(num *big.Int, useCache bool) {
 		}
 	}
 
-	if !useCache {
-		c.storage.saveBlock(height, block)
-	}
+	c.storage.saveBlock(height, block)
 	c.emitter()
 }
 
-func (c *Chain) handleEndpoint(endpoint int64, currentHeight int64) {
-	if c.handledEndPoint || c.config.Endpoint <= 0 {
+func (c *Chain) syncEndpoint(endpoint int64, currentHeight int64) {
+	if c.syncedEndPoint || c.config.Endpoint <= 0 {
 		return
 	}
 
-	for i := endpoint; i < currentHeight; i++ {
-		c.handleBlock(big.NewInt(i), true)
+	for i := endpoint - c.config.ConfirmTimes; i < currentHeight; i++ {
+		c.syncBlock(big.NewInt(i))
 	}
-	c.handledEndPoint = true
+	c.syncedEndPoint = true
 }
 
 // emit events
