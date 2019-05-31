@@ -3,6 +3,7 @@ package chainpot
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/fadeAce/claws"
 	"github.com/fadeAce/claws/types"
 	"path/filepath"
@@ -128,4 +129,10 @@ func (c *Chainpot) Reset(idx ...int) {
 
 func WaitExit() {
 	wg.Wait()
+}
+
+func DisplayError(err error) {
+	if err != nil {
+		println(fmt.Sprintf("Error: %s", err.Error()))
+	}
 }

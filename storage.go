@@ -33,10 +33,10 @@ func initStorage(path string) {
 		panic(err)
 	}
 
-	db.Update(func(tx *bolt.Tx) error {
+	DisplayError(db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte("config"))
 		return err
-	})
+	}))
 	cfgDB = db
 }
 
@@ -55,16 +55,17 @@ func (c *storage) getDB(height int64) (db *bolt.DB, err error) {
 	if c.DBS[idx] == nil {
 		var filename = fmt.Sprintf("%s/%s_%04d.db", c.Path, c.Chain, idx)
 		db, err = bolt.Open(filename, 0755, nil)
-		if err == nil {
-			c.Lock()
-			c.DBS[idx] = db
-			c.Unlock()
-
-			db.Update(func(tx *bolt.Tx) error {
-				_, err := tx.CreateBucketIfNotExists([]byte(c.Chain))
-				return err
-			})
+		if err != nil {
+			panic(err)
 		}
+
+		c.Lock()
+		c.DBS[idx] = db
+		c.Unlock()
+		db.Update(func(tx *bolt.Tx) error {
+			_, err = tx.CreateBucketIfNotExists([]byte(c.Chain))
+			return err
+		})
 		return
 	} else {
 		return c.DBS[idx], nil
@@ -96,6 +97,8 @@ func (c *storage) saveBlock(height int64, block []*BlockMessage) error {
 			for _, item := range m {
 				block = append(block, item)
 			}
+		} else {
+			return err
 		}
 		return bucket.Put(k, encode(block))
 	})

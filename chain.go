@@ -98,7 +98,7 @@ func (c *Chain) start() {
 		for {
 			select {
 			case <-c.ctx.Done():
-				saveCacheConfig(c.config.Chain, &cacheConfig{EndPoint: c.height,})
+				saveCacheConfig(c.config.Chain, &cacheConfig{EndPoint: c.height})
 				wg.Done()
 				println(fmt.Sprintf("Exit %s, endpoint: %d", c.config.Chain, c.height))
 				return
@@ -113,7 +113,7 @@ func (c *Chain) start() {
 				height := num.Int64()
 				if height > c.height {
 					c.height = height
-					saveCacheConfig(c.config.Chain, &cacheConfig{EndPoint: c.height,})
+					saveCacheConfig(c.config.Chain, &cacheConfig{EndPoint: c.height})
 				}
 				c.syncEndpoint(c.config.Endpoint, height)
 				c.syncBlock(num)
@@ -167,7 +167,7 @@ func (c *Chain) syncBlock(num *big.Int) {
 		}
 	}
 
-	c.storage.saveBlock(height, block)
+	DisplayError(c.storage.saveBlock(height, block))
 	c.emitter()
 }
 
