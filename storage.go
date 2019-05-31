@@ -17,10 +17,33 @@ type storage struct {
 	Chain string
 }
 
-func newStorage(path string, chain string) *storage {
+type cacheConfig struct {
+	EndPoint int64
+}
+
+var (
+	cachePath string
+	cfgDB     *bolt.DB
+)
+
+func initStorage(path string) {
+	cachePath = path
+	db, err := bolt.Open(cachePath+"/cache.db", 0755, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte("config"))
+		return err
+	})
+	cfgDB = db
+}
+
+func newStorage(chain string) *storage {
 	var obj = &storage{
 		DBS:   make([]*bolt.DB, 1000),
-		Path:  path + "/" + chain,
+		Path:  cachePath + "/" + chain,
 		Chain: chain,
 		Mutex: &sync.Mutex{},
 	}
@@ -36,6 +59,11 @@ func (c *storage) getDB(height int64) (db *bolt.DB, err error) {
 			c.Lock()
 			c.DBS[idx] = db
 			c.Unlock()
+
+			db.Update(func(tx *bolt.Tx) error {
+				_, err := tx.CreateBucketIfNotExists([]byte(c.Chain))
+				return err
+			})
 		}
 		return
 	} else {
@@ -85,11 +113,7 @@ func (c *storage) getBlock(height int64) ([]*BlockMessage, error) {
 	}
 
 	db.View(func(tx *bolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists([]byte(c.Chain))
-		if err != nil {
-			return err
-		}
-
+		bucket := tx.Bucket([]byte(c.Chain))
 		k := []byte(strconv.Itoa(int(height)))
 		bs = bucket.Get(k)
 		return nil
@@ -98,6 +122,27 @@ func (c *storage) getBlock(height int64) ([]*BlockMessage, error) {
 		return nil, errors.New("not exist")
 	}
 	return decode(bs), nil
+}
+
+func getCacheConfig(chain string) (cfg *cacheConfig) {
+	cfg = &cacheConfig{}
+	cfgDB.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte("config"))
+		bs := bucket.Get([]byte(chain))
+		return json.Unmarshal(bs, cfg)
+	})
+	return
+}
+
+func saveCacheConfig(chain string, cfg *cacheConfig) {
+	bs, _ := json.Marshal(cfg)
+	cfgDB.Update(func(tx *bolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists([]byte("config"))
+		if err != nil {
+			return err
+		}
+		return bucket.Put([]byte(chain), bs)
+	})
 }
 
 func encode(block []*BlockMessage) []byte {

@@ -6,6 +6,7 @@ import (
 	"github.com/fadeAce/claws"
 	"github.com/fadeAce/claws/types"
 	"path/filepath"
+	"sync"
 )
 
 type ChainType int
@@ -16,16 +17,19 @@ const (
 	CHAIN_ERC20
 )
 
+var (
+	waitExit *sync.WaitGroup
+)
+
 type Chainpot struct {
 	chains    []*Chain
 	conf      map[string]*chainOption
-	logPath   string
 	onMessage MessageHandler
 }
 
 type Config struct {
-	LogPath string
-	Coins   []struct {
+	CachePath string
+	Coins     []struct {
 		CoinType string `yaml:"type"`
 		Url      string `yml:"url"`
 		//Idx      string `yml:"idx"`
@@ -35,14 +39,15 @@ type Config struct {
 type MessageHandler func(idx int, event *PotEvent)
 
 func NewChainpot(conf *Config) *Chainpot {
+	waitExit = &sync.WaitGroup{}
 	var obj = &Chainpot{
 		chains: make([]*Chain, 128),
 		conf:   make(map[string]*chainOption),
 	}
-	if path, err := filepath.Abs(conf.LogPath); err != nil {
+	if path, err := filepath.Abs(conf.CachePath); err != nil {
 		panic(err)
 	} else {
-		obj.logPath = path
+		initStorage(path)
 	}
 
 	claws.SetupGate(&types.Claws{
@@ -59,9 +64,8 @@ func NewChainpot(conf *Config) *Chainpot {
 	return obj
 }
 
-func (c *Chainpot) Register(chainName string, endpoint int64) error {
+func (c *Chainpot) Register(chainName string) error {
 	var opt, exist = c.conf[chainName]
-	opt.LogPath = c.logPath
 	if !exist {
 		return errors.New("configure not exist")
 	}
@@ -70,9 +74,11 @@ func (c *Chainpot) Register(chainName string, endpoint int64) error {
 		return errors.New("repeat register")
 	}
 
-	opt.Endpoint = endpoint
+	cache := getCacheConfig(chainName)
+	opt.Endpoint = cache.EndPoint
 	var wallet = claws.Builder.BuildWallet(opt.Chain)
 	var chain = newChain(opt, wallet)
+
 	c.chains[opt.IDX] = chain
 	chain.onMessage = func(msg *PotEvent) {
 		c.onMessage(opt.IDX, msg)
@@ -105,14 +111,18 @@ func (c *Chainpot) Reset(idx ...int) {
 	if len(idx) == 0 {
 		for i, _ := range c.chains {
 			if c.chains[i] != nil {
-				c.chains[i].cancel()
+				c.chains[i].stop()
 			}
 		}
 	}
 
 	for _, v := range idx {
 		if c.chains[v] != nil {
-			c.chains[v].cancel()
+			c.chains[v].stop()
 		}
 	}
+}
+
+func WaitExit() {
+	waitExit.Wait()
 }

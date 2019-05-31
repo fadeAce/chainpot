@@ -53,7 +53,6 @@ type Chain struct {
 }
 
 type chainOption struct {
-	LogPath      string
 	ConfirmTimes int64
 	Chain        string
 	IDX          int
@@ -70,12 +69,12 @@ func newChain(opt *chainOption, wallet claws.Wallet) *Chain {
 		wallet:      wallet,
 		depositTxs:  NewQueue(),
 		withdrawTxs: NewQueue(),
-		storage:     newStorage(opt.LogPath, opt.Chain),
+		storage:     newStorage(opt.Chain),
 		ctx:         ctx,
 		cancel:      cancel,
 	}
 
-	var fp = opt.LogPath + "/" + opt.Chain
+	var fp = cachePath + "/" + opt.Chain
 	if _, err := os.Stat(fp); err != nil {
 		os.Mkdir(fp, 0755)
 	}
@@ -99,7 +98,11 @@ func (c *Chain) start() {
 		for {
 			select {
 			case <-c.ctx.Done():
-				println(fmt.Sprintf("%s stopped", c.config.Chain))
+				saveCacheConfig(c.config.Chain, &cacheConfig{
+					EndPoint: c.height,
+				})
+				waitExit.Done()
+				println(fmt.Sprintf("Exit %s, endpoint: %d", c.config.Chain, c.height))
 				return
 			case <-ticker.C:
 				var now = time.Now().UnixNano() / 1000000
@@ -112,7 +115,6 @@ func (c *Chain) start() {
 				if height > c.height {
 					c.height = height
 				}
-				println(fmt.Sprintf("Synchronizing Block: %d", height))
 				c.handleEndpoint(c.config.Endpoint, height)
 				c.handleBlock(big.NewInt(height), false)
 			}
@@ -120,8 +122,14 @@ func (c *Chain) start() {
 	}()
 }
 
+func (c *Chain) stop() {
+	waitExit.Add(1)
+	c.cancel()
+}
+
 func (c *Chain) handleBlock(num *big.Int, useCache bool) {
 	var height = num.Int64()
+	println(fmt.Sprintf("Synchronizing Block: %d", height))
 	var txns = make([]types.TXN, 0)
 	var err error
 	if useCache {
