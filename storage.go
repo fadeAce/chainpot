@@ -97,8 +97,6 @@ func (c *storage) saveBlock(height int64, block []*BlockMessage) error {
 			for _, item := range m {
 				block = append(block, item)
 			}
-		} else {
-			return err
 		}
 		return bucket.Put(k, encode(block))
 	})

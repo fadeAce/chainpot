@@ -138,17 +138,17 @@ func (c *Chain) syncBlock(num *big.Int) {
 	var block = make([]*BlockMessage, 0)
 	for i, _ := range txns {
 		var tx = txns[i]
-		var _, f1 = c.addrs[tx.FromStr()]
-		var _, f2 = c.addrs[tx.ToStr()]
-		if f1 || f2 {
-			if _, exist := c.syncedTxs[tx.HexStr()]; exist {
-				continue
-			} else {
-				block = append(block, NewBlockMessage(tx))
-				c.syncedTxs[tx.HexStr()] = time.Now().UnixNano() / 1000000
-			}
+		var _, f1 = c.addrs[tx.ToStr()]
+		var _, f2 = c.addrs[tx.FromStr()]
+		if !f1 && !f2 {
+			continue
+		}
+		if _, exist := c.syncedTxs[tx.HexStr()]; exist {
+			continue
 		}
 
+		block = append(block, NewBlockMessage(tx))
+		c.syncedTxs[tx.HexStr()] = time.Now().UnixNano() / 1000000
 		var node = &Value{TXN: tx, Height: height, Index: int64(i)}
 		if (f1 || f2) && tx.FromStr() == tx.ToStr() {
 			c.onMessage(&PotEvent{
