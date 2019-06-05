@@ -2,6 +2,7 @@ package chainpot
 
 import (
 	"encoding/json"
+	"github.com/fadeAce/claws/types"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,10 +12,7 @@ import (
 func TestNewChainpot(t *testing.T) {
 	var cp = NewChainpot(&Config{
 		CachePath: "./log",
-		Coins: []struct {
-			CoinType string `yaml:"type"`
-			Url      string `yml:"url"`
-		}{
+		Coins: []types.Coins{
 			{CoinType: "eth", Url: "ws://127.0.0.1:8546"},
 		},
 	})

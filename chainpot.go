@@ -34,11 +34,7 @@ type Chainpot struct {
 
 type Config struct {
 	CachePath string
-	Coins     []struct {
-		CoinType string `yaml:"type"`
-		Url      string `yml:"url"`
-		//Idx      string `yml:"idx"`
-	}
+	Coins     []types.Coins
 }
 
 type MessageHandler func(idx int, event *PotEvent)
@@ -109,6 +105,14 @@ func (c *Chainpot) Ready(idx ChainType) bool {
 	return c.chains[idx] != nil
 }
 
+func (c *Chainpot) IDX(chainName string) (ChainType, error) {
+	var opt, exist = c.conf[chainName]
+	if !exist {
+		return 0, errors.New("configure not exist")
+	}
+	return ChainType(opt.IDX), nil
+}
+
 // reset chain which matched with given []idx
 // if []idx is empty reset all
 func (c *Chainpot) Reset(idx ...int) {
@@ -119,7 +123,6 @@ func (c *Chainpot) Reset(idx ...int) {
 			}
 		}
 	}
-
 	for _, v := range idx {
 		if c.chains[v] != nil {
 			c.chains[v].stop()
