@@ -101,8 +101,12 @@ func (c *Chainpot) Start(fn MessageHandler) {
 }
 
 // // if chain matched idx has been registered return true otherwise return false
-func (c *Chainpot) Ready(idx ChainType) bool {
-	return c.chains[idx] != nil
+func (c *Chainpot) Ready(chainName string) bool {
+	var opt, exist = c.conf[chainName]
+	if !exist {
+		return false
+	}
+	return c.chains[opt.IDX] != nil
 }
 
 func (c *Chainpot) IDX(chainName string) (ChainType, error) {
