@@ -91,7 +91,7 @@ func (c *Chainpot) Register(chainName string) error {
 	return nil
 }
 
-func (c *Chainpot) Add(idx int, addrs []string) (height int64, err error) {
+func (c *Chainpot) Add(idx ChainType, addrs []string) (height int64, err error) {
 	return c.chains[idx].add(addrs)
 }
 
@@ -105,7 +105,7 @@ func (c *Chainpot) Start(fn MessageHandler) {
 }
 
 // // if chain matched idx has been registered return true otherwise return false
-func (c *Chainpot) Ready(idx int) bool {
+func (c *Chainpot) Ready(idx ChainType) bool {
 	return c.chains[idx] != nil
 }
 
