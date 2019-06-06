@@ -30,6 +30,7 @@ func initStorage(path string) {
 	cachePath = path
 	db, err := bolt.Open(cachePath+"/cache.db", 0755, nil)
 	if err != nil {
+		reportError(err)
 		panic(err)
 	}
 
