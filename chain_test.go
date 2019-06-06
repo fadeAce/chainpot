@@ -27,6 +27,5 @@ func TestNewChainpot(t *testing.T) {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	cp.Reset()
-	WaitExit()
 	println("Save data and exit.")
 }

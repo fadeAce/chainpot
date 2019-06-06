@@ -122,11 +122,6 @@ func (c *Chain) start() {
 	}()
 }
 
-func (c *Chain) stop() {
-	wg.Add(1)
-	c.cancel()
-}
-
 func (c *Chain) syncBlock(num *big.Int) {
 	var height = num.Int64()
 	println(fmt.Sprintf("%s Synchronizing Block: %d", strings.ToUpper(c.config.Chain), height))

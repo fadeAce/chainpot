@@ -120,21 +120,23 @@ func (c *Chainpot) IDX(chainName string) (ChainType, error) {
 // reset chain which matched with given []idx
 // if []idx is empty reset all
 func (c *Chainpot) Reset(idx ...int) {
+	wg = &sync.WaitGroup{}
 	if len(idx) == 0 {
 		for i, _ := range c.chains {
 			if c.chains[i] != nil {
-				c.chains[i].stop()
+				wg.Add(1)
+				c.chains[i].cancel()
+				c.chains[i] = nil
 			}
 		}
 	}
-	for _, v := range idx {
-		if c.chains[v] != nil {
-			c.chains[v].stop()
+	for _, i := range idx {
+		if c.chains[i] != nil {
+			wg.Add(1)
+			c.chains[i].cancel()
+			c.chains[i] = nil
 		}
 	}
-}
-
-func WaitExit() {
 	wg.Wait()
 }
 
