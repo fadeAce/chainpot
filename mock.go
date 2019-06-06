@@ -17,7 +17,7 @@ func (c *MaskBuilder) Build() claws.Wallet {
 type MaskWallet struct{}
 
 func (c *MaskWallet) Type() string {
-	return "mask"
+	return "MLGB"
 }
 
 func (c *MaskWallet) InitWallet() {
@@ -61,7 +61,7 @@ func (c *MaskWallet) UnfoldTxs(ctx context.Context, num *big.Int) ([]types.TXN, 
 func (c *MaskWallet) NotifyHead(ctx context.Context, f func(num *big.Int)) error {
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
-		var idx int64 = 1
+		var idx int64 = 8
 		defer ticker.Stop()
 		for {
 			<-ticker.C

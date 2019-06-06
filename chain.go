@@ -40,7 +40,7 @@ type Chain struct {
 	*sync.Mutex
 	addrs          map[string]bool
 	syncedTxs      map[string]int64
-	config         *chainOption
+	config         *CoinConf
 	height         int64
 	syncedEndPoint bool
 	wallet         claws.Wallet
@@ -60,7 +60,7 @@ type chainOption struct {
 	Endpoint     int64
 }
 
-func newChain(opt *chainOption, wallet claws.Wallet) *Chain {
+func newChain(opt *CoinConf, wallet claws.Wallet) *Chain {
 	ctx, cancel := context.WithCancel(context.Background())
 	chain := &Chain{
 		Mutex:       &sync.Mutex{},
@@ -70,13 +70,13 @@ func newChain(opt *chainOption, wallet claws.Wallet) *Chain {
 		wallet:      wallet,
 		depositTxs:  NewQueue(),
 		withdrawTxs: NewQueue(),
-		storage:     newStorage(opt.Chain),
+		storage:     newStorage(opt.Code),
 		noticer:     make(chan *big.Int, 1024),
 		ctx:         ctx,
 		cancel:      cancel,
 	}
 
-	var fp = cachePath + "/" + opt.Chain
+	var fp = cachePath + "/" + opt.Code
 	if _, err := os.Stat(fp); err != nil {
 		os.Mkdir(fp, 0755)
 	}
@@ -98,9 +98,9 @@ func (c *Chain) start() {
 		for {
 			select {
 			case <-c.ctx.Done():
-				saveCacheConfig(c.config.Chain, &cacheConfig{EndPoint: c.height})
+				saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: c.height})
 				wg.Done()
-				println(fmt.Sprintf("Exit %s, endpoint: %d", c.config.Chain, c.height))
+				println(fmt.Sprintf("Exit %s, endpoint: %d", c.config.Code, c.height))
 				return
 			case <-ticker.C:
 				var now = time.Now().UnixNano() / 1000000
@@ -113,7 +113,7 @@ func (c *Chain) start() {
 				height := num.Int64()
 				if height > c.height {
 					c.height = height
-					saveCacheConfig(c.config.Chain, &cacheConfig{EndPoint: c.height})
+					saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: c.height})
 				}
 				c.syncEndpoint(c.config.Endpoint, height)
 				c.syncBlock(num)
@@ -124,7 +124,7 @@ func (c *Chain) start() {
 
 func (c *Chain) syncBlock(num *big.Int) {
 	var height = num.Int64()
-	println(fmt.Sprintf("%s Synchronizing Block: %d", strings.ToUpper(c.config.Chain), height))
+	println(fmt.Sprintf("%s Synchronizing Block: %d", strings.ToUpper(c.config.Code), height))
 	txns, err := c.wallet.UnfoldTxs(context.Background(), num)
 	if err != nil {
 		return
@@ -147,7 +147,7 @@ func (c *Chain) syncBlock(num *big.Int) {
 		var node = &Value{TXN: tx, Height: height, Index: int64(i)}
 		if (f1 || f2) && tx.FromStr() == tx.ToStr() {
 			c.onMessage(&PotEvent{
-				Chain: c.config.Chain,
+				Chain: c.config.Code,
 				ID:    getEventID(height, T_ERROR, int64(i)),
 				Event: T_ERROR,
 			})
@@ -183,7 +183,7 @@ func (c *Chain) emitter() {
 	for i := 0; i < m; i++ {
 		var val = c.depositTxs.Front()
 		var msg = &PotEvent{
-			Chain:   c.config.Chain,
+			Chain:   c.config.Code,
 			Content: NewBlockMessage(val.TXN),
 		}
 
@@ -207,7 +207,7 @@ func (c *Chain) emitter() {
 	for i := 0; i < n; i++ {
 		var val = c.withdrawTxs.Front()
 		var msg = &PotEvent{
-			Chain:   c.config.Chain,
+			Chain:   c.config.Code,
 			Content: NewBlockMessage(val.TXN),
 		}
 

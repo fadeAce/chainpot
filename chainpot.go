@@ -28,13 +28,21 @@ func init() {
 
 type Chainpot struct {
 	chains    []*Chain
-	conf      map[string]*chainOption
+	conf      map[int]*CoinConf
 	onMessage MessageHandler
+}
+
+type CoinConf struct {
+	Code         string
+	URL          string
+	Idx          int
+	ConfirmTimes int64
+	Endpoint     int64
 }
 
 type Config struct {
 	CachePath string
-	Coins     []types.Coins
+	Coins     []*CoinConf
 }
 
 type MessageHandler func(idx int, event *PotEvent)
@@ -42,7 +50,7 @@ type MessageHandler func(idx int, event *PotEvent)
 func NewChainpot(conf *Config) *Chainpot {
 	var obj = &Chainpot{
 		chains: make([]*Chain, 128),
-		conf:   make(map[string]*chainOption),
+		conf:   make(map[int]*CoinConf),
 	}
 	if path, err := filepath.Abs(conf.CachePath); err != nil {
 		panic(err)
@@ -50,48 +58,54 @@ func NewChainpot(conf *Config) *Chainpot {
 		initStorage(path)
 	}
 
+	coins := make([]types.Coins, 0)
+	for _, item := range conf.Coins {
+		coins = append(coins, types.Coins{Url: item.URL, CoinType: item.Code})
+	}
+
 	claws.SetupGate(&types.Claws{
 		Ctx:     context.TODO(),
 		Version: "0.0.1",
-		Coins:   conf.Coins,
+		Coins:   coins,
 	}, map[string]claws.WalletBuilder{
-		"mask": &MaskBuilder{},
+		"MLGB": &MaskBuilder{},
 	})
 
 	for _, cfg := range conf.Coins {
-		obj.conf[cfg.CoinType] = &chainOption{
-			Chain:        cfg.CoinType,
-			ConfirmTimes: 7,
-		}
+		obj.conf[cfg.Idx] = cfg
 	}
 	return obj
 }
 
-func (c *Chainpot) Register(chainName string) error {
-	var opt, exist = c.conf[chainName]
+func (c *Chainpot) Register(idx int) error {
+	var opt, exist = c.conf[idx]
 	if !exist {
 		return errors.New("configure not exist")
 	}
 
-	if c.chains[opt.IDX] != nil {
+	if c.chains[opt.Idx] != nil {
 		return errors.New("repeat register")
 	}
 
-	cache := getCacheConfig(chainName)
+	cache := getCacheConfig(opt.Code)
 	opt.Endpoint = cache.EndPoint
-	var wallet = claws.Builder.BuildWallet(opt.Chain)
+	var wallet = claws.Builder.BuildWallet(opt.Code)
 	var chain = newChain(opt, wallet)
 
-	c.chains[opt.IDX] = chain
+	c.chains[opt.Idx] = chain
 	chain.onMessage = func(msg *PotEvent) {
-		c.onMessage(opt.IDX, msg)
+		c.onMessage(opt.Idx, msg)
 	}
 
 	return nil
 }
 
 func (c *Chainpot) Add(idx ChainType, addrs []string) (height int64, err error) {
-	return c.chains[idx].add(addrs)
+	chain := c.chains[idx]
+	if chain != nil {
+		return c.chains[idx].add(addrs)
+	}
+	return 0, errors.New("idx not initialize")
 }
 
 func (c *Chainpot) Start(fn MessageHandler) {
@@ -104,21 +118,21 @@ func (c *Chainpot) Start(fn MessageHandler) {
 }
 
 // // if chain matched idx has been registered return true otherwise return false
-func (c *Chainpot) Ready(chainName string) bool {
-	var opt, exist = c.conf[chainName]
+func (c *Chainpot) Ready(idx int) bool {
+	var opt, exist = c.conf[idx]
 	if !exist {
 		return false
 	}
-	return c.chains[opt.IDX] != nil
+	return c.chains[opt.Idx] != nil
 }
 
-func (c *Chainpot) IDX(chainName string) (ChainType, error) {
-	var opt, exist = c.conf[chainName]
-	if !exist {
-		return 0, errors.New("configure not exist")
-	}
-	return ChainType(opt.IDX), nil
-}
+//func (c *Chainpot) IDX(chainName string) (ChainType, error) {
+//	var opt, exist = c.conf[chainName]
+//	if !exist {
+//		return 0, errors.New("configure not exist")
+//	}
+//	return ChainType(opt.IDX), nil
+//}
 
 // reset chain which matched with given []idx
 // if []idx is empty reset all
