@@ -67,9 +67,7 @@ func NewChainpot(conf *Config) *Chainpot {
 		Ctx:     context.TODO(),
 		Version: "0.0.1",
 		Coins:   coins,
-	}, map[string]claws.WalletBuilder{
-		"MLGB": &MaskBuilder{},
-	})
+	}, nil)
 
 	for _, cfg := range conf.Coins {
 		obj.conf[cfg.Idx] = cfg
