@@ -143,6 +143,7 @@ func (c *Chainpot) Reset(idx ...int) {
 			if c.chains[i] != nil {
 				wg.Add(1)
 				c.chains[i].cancel()
+				clearCacheConfig(c.chains[i].config.Code)
 				c.chains[i] = nil
 			}
 		}
@@ -151,6 +152,7 @@ func (c *Chainpot) Reset(idx ...int) {
 		if c.chains[i] != nil {
 			wg.Add(1)
 			c.chains[i].cancel()
+			clearCacheConfig(c.chains[i].config.Code)
 			c.chains[i] = nil
 		}
 	}

@@ -135,12 +135,20 @@ func getCacheConfig(chain string) (cfg *cacheConfig) {
 func saveCacheConfig(chain string, cfg *cacheConfig) {
 	bs, _ := json.Marshal(cfg)
 	cfgDB.Update(func(tx *bolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists([]byte("config"))
-		if err != nil {
-			return err
-		}
+		bucket := tx.Bucket([]byte("config"))
 		return bucket.Put([]byte(chain), bs)
 	})
+}
+
+func clearCacheConfig(chain string) error {
+	err := cfgDB.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte("config"))
+		return bucket.Delete([]byte(chain))
+	})
+	if err != nil {
+		reportError(err)
+	}
+	return err
 }
 
 func encode(block []*BlockMessage) []byte {
