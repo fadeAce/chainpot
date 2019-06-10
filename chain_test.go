@@ -1,19 +1,54 @@
 package chainpot
 
 import (
+	"context"
 	"encoding/json"
+	"github.com/fadeAce/claws"
+	"github.com/fadeAce/claws/types"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"testing"
 )
 
+func newOfflineTestChainpot(conf *Config) *Chainpot {
+
+	var obj = &Chainpot{
+		chains: make([]*Chain, 128),
+		conf:   make(map[int]*CoinConf),
+	}
+	if path, err := filepath.Abs(conf.CachePath); err != nil {
+		panic(err)
+	} else {
+		initStorage(path)
+	}
+
+	coins := make([]types.Coins, 0)
+	for _, item := range conf.Coins {
+		coins = append(coins, types.Coins{Url: item.URL, CoinType: item.Code})
+	}
+
+	claws.SetupGate(&types.Claws{
+		Ctx:     context.TODO(),
+		Version: "0.0.1",
+		Coins:   coins,
+	}, map[string]claws.WalletBuilder{
+		"MLGB": &MaskBuilder{},
+	})
+
+	for _, cfg := range conf.Coins {
+		obj.conf[cfg.Idx] = cfg
+	}
+	return obj
+
+}
+
 func TestNewChainpot(t *testing.T) {
-	var cp = NewChainpot(&Config{
+	var cp = newOfflineTestChainpot(&Config{
 		CachePath: "./log",
 		Coins: []*CoinConf{
-			//{CoinType: "eth", Url: "ws://127.0.0.1:8546"},
-			{Code: "MLGB", URL: "ws://127.0.0.1:8546", Idx: 1, ConfirmTimes: 7},
+			{Code: "MLGB", Idx: 1, ConfirmTimes: 7},
 		},
 	})
 	cp.Register(1)
