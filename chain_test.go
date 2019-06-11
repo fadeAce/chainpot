@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/fadeAce/claws"
 	"github.com/fadeAce/claws/types"
+	"github.com/rs/zerolog/log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -65,4 +66,53 @@ func TestNewChainpot(t *testing.T) {
 	<-quit
 	cp.Reset()
 	println("Save data and exit.")
+}
+
+// 重复添加
+func TestChainpot_Add(t *testing.T) {
+	var cp = NewChainpot(&Config{
+		CachePath: "./log",
+		Coins: []*CoinConf{
+			{Code: "ETH", URL: "ws://localhost:8546", Idx: 1, ConfirmTimes: 7},
+		},
+	})
+	cp.Register(1)
+	cp.Add(1, []string{"0x78aE889cd04Cb9274C2600d68CCc5058F43dB63e"})
+	cp.Add(1, []string{"0x78aE889cd04Cb9274C2600d68CCc5058F43dB63e"})
+	cp.Start(func(idx int, event *PotEvent) {})
+	select {}
+}
+
+// 重复注册
+func TestChainpot_Register(t *testing.T) {
+	var cp = NewChainpot(&Config{
+		CachePath: "./log",
+		Coins: []*CoinConf{
+			{Code: "ETH", URL: "ws://localhost:8546", Idx: 1, ConfirmTimes: 7},
+		},
+	})
+	cp.Register(1)
+	err := cp.Register(1)
+	if err != nil {
+		log.Error().Msg(err.Error())
+	}
+
+	cp.Add(1, []string{"0x78aE889cd04Cb9274C2600d68CCc5058F43dB63e"})
+	cp.Start(func(idx int, event *PotEvent) {})
+	select {}
+}
+
+func TestChainpot_Reset(t *testing.T) {
+	var cp = NewChainpot(&Config{
+		CachePath: "./log",
+		Coins: []*CoinConf{
+			{Code: "ETH", URL: "ws://localhost:8546", Idx: 1, ConfirmTimes: 7},
+		},
+	})
+	cp.Register(1)
+	cp.Add(1, []string{"0x78aE889cd04Cb9274C2600d68CCc5058F43dB63e"})
+	cp.Start(func(idx int, event *PotEvent) {})
+
+	cp.Reset()
+	select {}
 }

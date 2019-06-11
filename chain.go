@@ -87,6 +87,8 @@ func newChain(opt *CoinConf, wallet claws.Wallet) *Chain {
 }
 
 func (c *Chain) start() {
+	log.Info().Msgf("%s start", strings.ToUpper(c.config.Code))
+
 	go func() {
 		c.wallet.NotifyHead(c.ctx, func(num *big.Int) {
 			c.noticer <- num
@@ -102,7 +104,7 @@ func (c *Chain) start() {
 			case <-c.ctx.Done():
 				saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: c.height})
 				wg.Done()
-				println(fmt.Sprintf("Exit %s, endpoint: %d", c.config.Code, c.height))
+				log.Info().Msgf("%s stopped, endpoint: %d", strings.ToUpper(c.config.Code), c.height)
 				return
 			case <-ticker.C:
 				var now = time.Now().UnixNano() / 1000000
@@ -202,7 +204,7 @@ func (c *Chain) emitter() {
 			c.depositTxs.PushBack(val)
 		}
 		msg.ID = c.getEventID(val.Height, msg.Event, val.Index)
-		log.Debug().Msgf("New Event: %s",mustMarshal(msg))
+		log.Debug().Msgf("New Event: %s", mustMarshal(msg))
 		c.onMessage(msg)
 	}
 
@@ -227,7 +229,7 @@ func (c *Chain) emitter() {
 			c.withdrawTxs.PushBack(val)
 		}
 		msg.ID = c.getEventID(val.Height, msg.Event, val.Index)
-		log.Debug().Msgf("New Event: %s",mustMarshal(msg))
+		log.Debug().Msgf("New Event: %s", mustMarshal(msg))
 		c.onMessage(msg)
 	}
 }
