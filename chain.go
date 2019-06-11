@@ -126,7 +126,7 @@ func (c *Chain) start() {
 
 func (c *Chain) syncBlock(num *big.Int) {
 	var height = num.Int64()
-	log.Info().Msgf("%s Synchronizing Block: %d", strings.ToUpper(c.config.Code), height)
+	log.Debug().Msgf("%s Synchronizing Block: %d", strings.ToUpper(c.config.Code), height)
 	txns, err := c.wallet.UnfoldTxs(context.Background(), num)
 	if err != nil {
 		return
@@ -202,7 +202,7 @@ func (c *Chain) emitter() {
 			c.depositTxs.PushBack(val)
 		}
 		msg.ID = c.getEventID(val.Height, msg.Event, val.Index)
-		log.Info().Msgf("New Event: %s",mustMarshal(msg))
+		log.Debug().Msgf("New Event: %s",mustMarshal(msg))
 		c.onMessage(msg)
 	}
 
@@ -227,7 +227,7 @@ func (c *Chain) emitter() {
 			c.withdrawTxs.PushBack(val)
 		}
 		msg.ID = c.getEventID(val.Height, msg.Event, val.Index)
-		log.Info().Msgf("New Event: %s",mustMarshal(msg))
+		log.Debug().Msgf("New Event: %s",mustMarshal(msg))
 		c.onMessage(msg)
 	}
 }
