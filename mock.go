@@ -8,16 +8,22 @@ import (
 	"time"
 )
 
+var (
+	testMsgs   map[int64]*[]BlockMessage
+	testHeight = 1
+)
+
 type MaskBuilder struct{}
 
 func (c *MaskBuilder) Build() claws.Wallet {
+	testMsgs = make(map[int64]*[]BlockMessage)
 	return &MaskWallet{}
 }
 
 type MaskWallet struct{}
 
 func (c *MaskWallet) Type() string {
-	return "MLGB"
+	return "mlgb"
 }
 
 func (c *MaskWallet) InitWallet() {
@@ -49,27 +55,42 @@ func (c *MaskWallet) Balance(bundle types.Bundle) (string, error) {
 }
 
 func (c *MaskWallet) UnfoldTxs(ctx context.Context, num *big.Int) ([]types.TXN, error) {
-	return []types.TXN{&BlockMessage{
-		Hash:   "0xda29054d35d1af9d54e5e8aafce62fec11c716c8bef67508e2dc4ae5e3882ebb",
-		From:   "0x78aE889cd04Cb9274C2600d68CCc5058F43dB63e",
-		To:     "0x54a298ee9fccbf0ad8e55bc641d3086b81a48c41",
-		Fee:    "0.000247385",
-		Amount: "0.01",
-	}}, nil
+	height := num.Int64()
+	arr, ok := testMsgs[height]
+	if !ok {
+		return make([]types.TXN, 0), nil
+	}
+
+	txns := make([]types.TXN, 0)
+	for _, item := range *arr {
+		txns = append(txns, &item)
+	}
+	return txns, nil
 }
 
 func (c *MaskWallet) NotifyHead(ctx context.Context, f func(num *big.Int)) error {
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
-		var idx int64 = 8
-		defer ticker.Stop()
+		var height int64 = 8
 		for {
-			<-ticker.C
-			f(big.NewInt(idx))
-			idx++
+			select {
+			case <-ticker.C:
+				f(big.NewInt(height))
+				height++
+			}
 		}
 	}()
 	return nil
+}
+
+func pushBack(height int64, tx BlockMessage) {
+	arr, ok := testMsgs[height]
+	if !ok {
+		list := make([]BlockMessage, 0)
+		testMsgs[height] = &list
+		arr = &list
+	}
+	*arr = append(*arr, tx)
 }
 
 func (c *MaskWallet) Info() *types.Info {

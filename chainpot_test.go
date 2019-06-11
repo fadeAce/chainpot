@@ -12,8 +12,14 @@ import (
 	"testing"
 )
 
-func newOfflineTestChainpot(conf *Config) *Chainpot {
-
+// TEST MLGB
+func TestChainpot_Ready(t *testing.T) {
+	conf := &Config{
+		CachePath: "./log",
+		Coins: []*CoinConf{
+			{Code: "mlgb", URL: "ws://localhost:8546", Idx: 1, ConfirmTimes: 7},
+		},
+	}
 	var obj = &Chainpot{
 		chains: make([]*Chain, 128),
 		conf:   make(map[int]*CoinConf),
@@ -28,20 +34,33 @@ func newOfflineTestChainpot(conf *Config) *Chainpot {
 	for _, item := range conf.Coins {
 		coins = append(coins, types.Coins{Url: item.URL, CoinType: item.Code})
 	}
-
 	claws.SetupGate(&types.Claws{
 		Ctx:     context.TODO(),
 		Version: "0.0.1",
 		Coins:   coins,
 	}, map[string]claws.WalletBuilder{
-		"MLGB": &MaskBuilder{},
+		"mlgb": &MaskBuilder{},
 	})
-
 	for _, cfg := range conf.Coins {
 		obj.conf[cfg.Idx] = cfg
 	}
-	return obj
 
+	obj.Register(1)
+	pushBack(9, BlockMessage{
+		Hash:   "0xda29054d35d1af9d54e5e8aafce62fec11c716c8bef67508e2dc4ae5e3882ebb",
+		From:   "0x78aE889cd04Cb9274C2600d68CCc5058F43dB63e",
+		To:     "0x54a298ee9fccbf0ad8e55bc641d3086b81a48c41",
+		Fee:    "0.000247385",
+		Amount: "0.01",
+	})
+	obj.Add(1, []string{"0x78aE889cd04Cb9274C2600d68CCc5058F43dB63e"})
+	obj.Start(func(idx int, event *PotEvent) {})
+
+	quit := make(chan os.Signal)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	obj.Reset()
+	println("Save data and exit.")
 }
 
 func TestNewChainpot(t *testing.T) {
