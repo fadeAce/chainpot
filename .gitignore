@@ -1,6 +1,6 @@
 *.iml
-.idea/
-test/
-log/
-example/
+/.idea
+/test
+/log
+/example
 .DS_Store
