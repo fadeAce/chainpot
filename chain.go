@@ -55,13 +55,6 @@ type Chain struct {
 	cancel         context.CancelFunc
 }
 
-type chainOption struct {
-	ConfirmTimes int64
-	Chain        string
-	IDX          int
-	Endpoint     int64
-}
-
 func newChain(opt *CoinConf, wallet claws.Wallet) *Chain {
 	ctx, cancel := context.WithCancel(context.Background())
 	chain := &Chain{
@@ -149,10 +142,10 @@ func (c *Chain) syncBlock(num *big.Int) {
 		block = append(block, NewBlockMessage(tx))
 		c.syncedTxs[tx.HexStr()] = time.Now().UnixNano() / 1000000
 		var node = &Value{TXN: tx, Height: height, Index: int64(i)}
-		if (f1 || f2) && tx.FromStr() == tx.ToStr() {
+		if tx.FromStr() == tx.ToStr() {
 			c.onMessage(&PotEvent{
 				Chain: c.config.Code,
-				ID:    c.getEventID(height, T_ERROR, int64(i)),
+				ID:    c.getEventID(height, T_ERROR, int64(i), 0),
 				Event: T_ERROR,
 			})
 		} else if f1 && f2 {
@@ -203,7 +196,7 @@ func (c *Chain) emitter() {
 			msg.Event = T_DEPOSIT_UPDATE
 			c.depositTxs.PushBack(val)
 		}
-		msg.ID = c.getEventID(val.Height, msg.Event, val.Index)
+		msg.ID = c.getEventID(val.Height, msg.Event, val.Index, 0)
 		log.Debug().Msgf("New Event: %s", mustMarshal(msg))
 		c.onMessage(msg)
 	}
@@ -228,7 +221,7 @@ func (c *Chain) emitter() {
 			msg.Event = T_WITHDRAW_UPDATE
 			c.withdrawTxs.PushBack(val)
 		}
-		msg.ID = c.getEventID(val.Height, msg.Event, val.Index)
+		msg.ID = c.getEventID(val.Height, msg.Event, val.Index, 1)
 		log.Debug().Msgf("New Event: %s", mustMarshal(msg))
 		c.onMessage(msg)
 	}
@@ -247,8 +240,8 @@ func (c *Chain) add(addrs []string) (height int64, err error) {
 	return c.height, nil
 }
 
-func (c *Chain) getEventID(height int64, event EventType, idx int64) int64 {
-	var str = fmt.Sprintf("%d%011d%05d", c.config.Idx, height, idx)
+func (c *Chain) getEventID(height int64, event EventType, idx int64, isWithdraw int) int64 {
+	var str = fmt.Sprintf("%d%04d%04d%d", height, c.config.Idx, idx, isWithdraw)
 	num, _ := strconv.Atoi(str)
 	return int64(num)
 }

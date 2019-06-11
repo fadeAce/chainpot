@@ -1,6 +1,8 @@
 package chainpot
 
-import "github.com/fadeAce/claws/types"
+import (
+	"github.com/fadeAce/claws/types"
+)
 
 type BlockMessage struct {
 	Hash   string
