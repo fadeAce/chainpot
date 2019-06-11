@@ -83,9 +83,13 @@ func (c *Chain) start() {
 	log.Info().Msgf("%s start", strings.ToUpper(c.config.Code))
 
 	go func() {
-		c.wallet.NotifyHead(c.ctx, func(num *big.Int) {
+		err := c.wallet.NotifyHead(c.ctx, func(num *big.Int) {
+			log.Info().Msgf("%s received new block from claws ", num.String())
 			c.noticer <- num
 		})
+		if err != nil {
+			log.Error().Msgf("fatal error when starting head syncing", err)
+		}
 	}()
 
 	go func() {
