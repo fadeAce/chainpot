@@ -44,10 +44,15 @@ func newOfflineTestChainpot(conf *Config) *Chainpot {
 }
 
 func TestNewChainpot(t *testing.T) {
-	var cp = newOfflineTestChainpot(&Config{
+	var cp = NewChainpot(&Config{
 		CachePath: "./log",
 		Coins: []*CoinConf{
-			{Code: "MLGB", Idx: 1, ConfirmTimes: 7},
+			{
+				Code:         "ETH",
+				URL:          "ws://localhost:8546",
+				Idx:          1,
+				ConfirmTimes: 7,
+			},
 		},
 	})
 	cp.Register(1)

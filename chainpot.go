@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -65,12 +66,17 @@ type Config struct {
 type MessageHandler func(idx int, event *PotEvent)
 
 func NewChainpot(conf *Config) *Chainpot {
+	for i, _ := range conf.Coins {
+		item := conf.Coins[i]
+		item.Code = strings.ToLower(item.Code)
+	}
+
 	var obj = &Chainpot{
 		chains: make([]*Chain, 128),
 		conf:   make(map[int]*CoinConf),
 	}
 	if path, err := filepath.Abs(conf.CachePath); err != nil {
-		panic(err)
+		log.Fatal().Msgf(err.Error())
 	} else {
 		initStorage(path)
 	}
