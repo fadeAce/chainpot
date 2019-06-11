@@ -3,9 +3,11 @@ package chainpot
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/fadeAce/claws"
 	"github.com/fadeAce/claws/types"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
+	"os"
 	"path/filepath"
 	"sync"
 )
@@ -19,11 +21,26 @@ const (
 )
 
 var (
-	wg *sync.WaitGroup
+	wg      *sync.WaitGroup
+	runmode string
 )
 
 func init() {
 	wg = &sync.WaitGroup{}
+	runmode = os.Getenv("RUN_MODE")
+	if runmode == "" {
+		runmode = "debug"
+	}
+
+	log.Logger = log.Output(zerolog.ConsoleWriter{
+		Out:        os.Stderr,
+		TimeFormat: "2006/01/02 15:04:05",
+	})
+	level := zerolog.DebugLevel
+	if runmode == "release" {
+		level = zerolog.WarnLevel
+	}
+	zerolog.SetGlobalLevel(level)
 }
 
 type Chainpot struct {
@@ -155,10 +172,4 @@ func (c *Chainpot) Reset(idx ...int) {
 		}
 	}
 	wg.Wait()
-}
-
-func DisplayError(err error) {
-	if err != nil {
-		println(fmt.Sprintf("Error: %s", err.Error()))
-	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/boltdb/bolt"
+	"github.com/rs/zerolog/log"
 	"math"
 	"strconv"
 	"sync"
@@ -28,16 +29,19 @@ var (
 
 func initStorage(path string) {
 	cachePath = path
-	db, err := bolt.Open(cachePath+"/cache.db", 0755, nil)
-	if err != nil {
-		reportError(err)
-		panic(err)
+	db, openError := bolt.Open(cachePath+"/cache.db", 0755, nil)
+	if openError != nil {
+		log.Fatal().Msg(openError.Error())
+		return
 	}
 
-	DisplayError(db.Update(func(tx *bolt.Tx) error {
+	updateError := db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte("config"))
 		return err
-	}))
+	})
+	if updateError != nil {
+		log.Error().Msg(updateError.Error())
+	}
 	cfgDB = db
 }
 
@@ -57,7 +61,8 @@ func (c *storage) getDB(height int64) (db *bolt.DB, err error) {
 		var filename = fmt.Sprintf("%s/%s_%04d.db", c.Path, c.Chain, idx)
 		db, err = bolt.Open(filename, 0755, nil)
 		if err != nil {
-			panic(err)
+			log.Fatal().Msg(err.Error())
+			return
 		}
 
 		c.Lock()
@@ -83,7 +88,7 @@ func (c *storage) saveBlock(height int64, block []*BlockMessage) error {
 		return err
 	}
 
-	return db.Update(func(tx *bolt.Tx) error {
+	putError := db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(c.Chain))
 		k := []byte(strconv.Itoa(int(height)))
 		if oldBlock, err := c.getBlock(height); err == nil {
@@ -101,6 +106,11 @@ func (c *storage) saveBlock(height int64, block []*BlockMessage) error {
 		}
 		return bucket.Put(k, encode(block))
 	})
+
+	if putError != nil {
+		log.Error().Msg(putError.Error())
+	}
+	return putError
 }
 
 func (c *storage) getBlock(height int64) ([]*BlockMessage, error) {
@@ -134,10 +144,13 @@ func getCacheConfig(chain string) (cfg *cacheConfig) {
 
 func saveCacheConfig(chain string, cfg *cacheConfig) {
 	bs, _ := json.Marshal(cfg)
-	cfgDB.Update(func(tx *bolt.Tx) error {
+	err := cfgDB.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte("config"))
 		return bucket.Put([]byte(chain), bs)
 	})
+	if err != nil {
+		log.Error().Msg(err.Error())
+	}
 }
 
 func clearCacheConfig(chain string) error {
@@ -146,7 +159,7 @@ func clearCacheConfig(chain string) error {
 		return bucket.Delete([]byte(chain))
 	})
 	if err != nil {
-		reportError(err)
+		log.Error().Msg(err.Error())
 	}
 	return err
 }

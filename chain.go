@@ -2,9 +2,11 @@ package chainpot
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/fadeAce/claws"
+	"github.com/rs/zerolog/log"
 	"math/big"
 	"os"
 	"strconv"
@@ -124,7 +126,7 @@ func (c *Chain) start() {
 
 func (c *Chain) syncBlock(num *big.Int) {
 	var height = num.Int64()
-	println(fmt.Sprintf("%s Synchronizing Block: %d", strings.ToUpper(c.config.Code), height))
+	log.Info().Msgf("%s Synchronizing Block: %d", strings.ToUpper(c.config.Code), height)
 	txns, err := c.wallet.UnfoldTxs(context.Background(), num)
 	if err != nil {
 		return
@@ -162,7 +164,7 @@ func (c *Chain) syncBlock(num *big.Int) {
 		}
 	}
 
-	DisplayError(c.storage.saveBlock(height, block))
+	c.storage.saveBlock(height, block)
 	c.emitter()
 }
 
@@ -200,6 +202,7 @@ func (c *Chain) emitter() {
 			c.depositTxs.PushBack(val)
 		}
 		msg.ID = c.getEventID(val.Height, msg.Event, val.Index)
+		log.Info().Msgf("New Event: %s",mustMarshal(msg))
 		c.onMessage(msg)
 	}
 
@@ -224,6 +227,7 @@ func (c *Chain) emitter() {
 			c.withdrawTxs.PushBack(val)
 		}
 		msg.ID = c.getEventID(val.Height, msg.Event, val.Index)
+		log.Info().Msgf("New Event: %s",mustMarshal(msg))
 		c.onMessage(msg)
 	}
 }
@@ -245,4 +249,9 @@ func (c *Chain) getEventID(height int64, event EventType, idx int64) int64 {
 	var str = fmt.Sprintf("%d%011d%05d", c.config.Idx, height, idx)
 	num, _ := strconv.Atoi(str)
 	return int64(num)
+}
+
+func mustMarshal(v interface{}) string {
+	b, _ := json.Marshal(v)
+	return string(b)
 }

@@ -2,7 +2,6 @@ package chainpot
 
 import (
 	"context"
-	"encoding/json"
 	"github.com/fadeAce/claws"
 	"github.com/fadeAce/claws/types"
 	"os"
@@ -54,8 +53,6 @@ func TestNewChainpot(t *testing.T) {
 	cp.Register(1)
 	cp.Add(1, []string{"0x78aE889cd04Cb9274C2600d68CCc5058F43dB63e"})
 	cp.Start(func(idx int, event *PotEvent) {
-		b, _ := json.Marshal(event)
-		println(idx, string(b))
 	})
 
 	quit := make(chan os.Signal)
