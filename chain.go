@@ -88,7 +88,7 @@ func (c *Chain) start() {
 			c.noticer <- num
 		})
 		if err != nil {
-			log.Error().Msgf("fatal error when starting head syncing", err)
+			log.Error().Msgf("fatal error when starting head syncing: %s", err.Error())
 		}
 	}()
 
