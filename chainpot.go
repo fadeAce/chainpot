@@ -181,6 +181,7 @@ func (c *Chainpot) Reset(idx ...int) {
 	}
 }
 
+// call the function when process exit.
 func (c *Chainpot) Stop() {
 	wg = &sync.WaitGroup{}
 	for i, _ := range c.chains {
