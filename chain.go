@@ -145,7 +145,7 @@ func (c *Chain) syncBlock(num *big.Int) {
 		if tx.FromStr() == tx.ToStr() {
 			c.onMessage(&PotEvent{
 				Chain: c.config.Code,
-				ID:    c.getEventID(height, T_ERROR, int64(i), 0),
+				ID:    c.getEventID(height, T_ERROR, int64(i)),
 				Event: T_ERROR,
 			})
 		} else if f1 && f2 {
@@ -196,7 +196,7 @@ func (c *Chain) emitter() {
 			msg.Event = T_DEPOSIT_UPDATE
 			c.depositTxs.PushBack(val)
 		}
-		msg.ID = c.getEventID(val.Height, msg.Event, val.Index, 0)
+		msg.ID = c.getEventID(val.Height, msg.Event, val.Index)
 		log.Debug().Msgf("New Event: %s", mustMarshal(msg))
 		c.onMessage(msg)
 	}
@@ -221,7 +221,7 @@ func (c *Chain) emitter() {
 			msg.Event = T_WITHDRAW_UPDATE
 			c.withdrawTxs.PushBack(val)
 		}
-		msg.ID = c.getEventID(val.Height, msg.Event, val.Index, 1)
+		msg.ID = c.getEventID(val.Height, msg.Event, val.Index)
 		log.Debug().Msgf("New Event: %s", mustMarshal(msg))
 		c.onMessage(msg)
 	}
@@ -240,8 +240,8 @@ func (c *Chain) add(addrs []string) (height int64, err error) {
 	return c.height, nil
 }
 
-func (c *Chain) getEventID(height int64, event EventType, idx int64, isWithdraw int) int64 {
-	var str = fmt.Sprintf("%d%04d%04d%d", height, c.config.Idx, idx, isWithdraw)
+func (c *Chain) getEventID(height int64, event EventType, idx int64) int64 {
+	var str = fmt.Sprintf("%d%04d%03d%02d", height, idx, c.config.Idx, event)
 	num, _ := strconv.Atoi(str)
 	return int64(num)
 }
