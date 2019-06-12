@@ -8,6 +8,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"math"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -52,6 +53,16 @@ func newStorage(chain string) *storage {
 		Chain: chain,
 		Mutex: &sync.Mutex{},
 	}
+
+	err := cfgDB.Update(func(tx *bolt.Tx) error {
+		bucket := fmt.Sprintf("%s_addrs", strings.ToLower(chain))
+		_, err := tx.CreateBucketIfNotExists([]byte(bucket))
+		return err
+	})
+	if err != nil {
+		log.Error().Msgf("BoltDB Register Chain Error: %s", err.Error())
+	}
+
 	return obj
 }
 
@@ -132,34 +143,96 @@ func (c *storage) getBlock(height int64) ([]*BlockMessage, error) {
 	return decode(bs), nil
 }
 
-func getCacheConfig(chain string) (cfg *cacheConfig) {
+func getCacheConfig(chain string) (cfg *cacheConfig, addrs map[string]bool) {
 	cfg = &cacheConfig{}
 	cfgDB.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte("config"))
 		bs := bucket.Get([]byte(chain))
 		return json.Unmarshal(bs, cfg)
 	})
+
+	addrs = make(map[string]bool)
+	cfgDB.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(fmt.Sprintf("%s_addrs", strings.ToLower(chain))))
+		return bucket.ForEach(func(k, v []byte) error {
+			key := string(k)
+			addrs[key] = true
+			return nil
+		})
+	})
 	return
 }
 
-func saveCacheConfig(chain string, cfg *cacheConfig) {
+func saveCacheConfig(chain string, cfg *cacheConfig, addrs map[string]bool) {
 	bs, _ := json.Marshal(cfg)
-	err := cfgDB.Update(func(tx *bolt.Tx) error {
+	err1 := cfgDB.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte("config"))
-		return bucket.Put([]byte(chain), bs)
+		err := bucket.Put([]byte(chain), bs)
+		if err != nil {
+			log.Error().Msg(err.Error())
+		}
+		return err
 	})
-	if err != nil {
-		log.Error().Msg(err.Error())
+	if err1 != nil {
+		log.Error().Msgf(err1.Error())
+	}
+
+	err2 := cfgDB.Update(func(tx *bolt.Tx) error {
+		bucketName := []byte(fmt.Sprintf("%s_addrs", strings.ToLower(chain)))
+		bucket := tx.Bucket(bucketName)
+		var hasError error
+		for key, _ := range addrs {
+			err := bucket.Put([]byte(key), []byte(""))
+			if err != nil {
+				hasError = err
+				log.Error().Msgf("BoltDB Put Error: %s", err.Error())
+			}
+		}
+		return hasError
+	})
+	if err2 != nil {
+		log.Error().Msgf(err2.Error())
 	}
 }
 
-func clearCacheConfig(chain string) error {
+func addAddr(chain string, addrs []string) error {
 	err := cfgDB.Update(func(tx *bolt.Tx) error {
+		bucketName := []byte(fmt.Sprintf("%s_addrs", strings.ToLower(chain)))
+		bucket := tx.Bucket(bucketName)
+		var hasError error
+		for _, addr := range addrs {
+			err := bucket.Put([]byte(addr), []byte(""))
+			if err != nil {
+				hasError = err
+				log.Error().Msgf("BoltDB Put Error: %s", err.Error())
+			}
+		}
+		return hasError
+	})
+	if err != nil {
+		log.Error().Msgf(err.Error())
+	}
+	return err
+}
+
+func clearCacheConfig(chain string) (err error) {
+	err1 := cfgDB.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte("config"))
 		return bucket.Delete([]byte(chain))
 	})
-	if err != nil {
-		log.Error().Msg(err.Error())
+	if err1 != nil {
+		log.Error().Msg(err1.Error())
+	}
+
+	err2 := cfgDB.Update(func(tx *bolt.Tx) error {
+		bucketName := []byte(fmt.Sprintf("%s_addrs", strings.ToLower(chain)))
+		err := tx.DeleteBucket(bucketName)
+		tx.CreateBucketIfNotExists(bucketName)
+		return err
+	})
+	if err2 != nil {
+		err = err2
+		log.Error().Msg(err2.Error())
 	}
 	return err
 }

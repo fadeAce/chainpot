@@ -108,11 +108,8 @@ func (c *Chainpot) Register(idx int) error {
 		return errors.New("repeat register")
 	}
 
-	cache := getCacheConfig(opt.Code)
-	opt.Endpoint = cache.EndPoint
 	var wallet = claws.Builder.BuildWallet(opt.Code)
 	var chain = newChain(opt, wallet)
-
 	c.chains[opt.Idx] = chain
 	chain.onMessage = func(msg *PotEvent) {
 		c.onMessage(opt.Idx, msg)
@@ -121,12 +118,12 @@ func (c *Chainpot) Register(idx int) error {
 	return nil
 }
 
-func (c *Chainpot) Add(idx ChainType, addrs []string) (height int64, err error) {
+func (c *Chainpot) Add(idx int, addrs []string) (height int64) {
 	chain := c.chains[idx]
 	if chain != nil {
 		return c.chains[idx].add(addrs)
 	}
-	return 0, errors.New("idx not initialize")
+	return 0
 }
 
 func (c *Chainpot) Start(fn MessageHandler) {
@@ -147,14 +144,6 @@ func (c *Chainpot) Ready(idx int) bool {
 	return c.chains[opt.Idx] != nil
 }
 
-//func (c *Chainpot) IDX(chainName string) (ChainType, error) {
-//	var opt, exist = c.conf[chainName]
-//	if !exist {
-//		return 0, errors.New("configure not exist")
-//	}
-//	return ChainType(opt.IDX), nil
-//}
-
 // reset chain which matched with given []idx
 // if []idx is empty reset all
 func (c *Chainpot) Reset(idx ...int) {
@@ -164,17 +153,40 @@ func (c *Chainpot) Reset(idx ...int) {
 			if c.chains[i] != nil {
 				wg.Add(1)
 				c.chains[i].cancel()
+			}
+		}
+		wg.Wait()
+
+		for i, _ := range c.chains {
+			if c.chains[i] != nil {
 				clearCacheConfig(c.chains[i].config.Code)
 				c.chains[i] = nil
 			}
 		}
+		return
 	}
+
 	for _, i := range idx {
 		if c.chains[i] != nil {
 			wg.Add(1)
 			c.chains[i].cancel()
+		}
+	}
+	wg.Wait()
+	for _, i := range idx {
+		if c.chains[i] != nil {
 			clearCacheConfig(c.chains[i].config.Code)
 			c.chains[i] = nil
+		}
+	}
+}
+
+func (c *Chainpot) Stop() {
+	wg = &sync.WaitGroup{}
+	for i, _ := range c.chains {
+		if c.chains[i] != nil {
+			wg.Add(1)
+			c.chains[i].cancel()
 		}
 	}
 	wg.Wait()

@@ -3,7 +3,6 @@ package chainpot
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/fadeAce/claws"
 	"github.com/rs/zerolog/log"
@@ -57,15 +56,19 @@ type Chain struct {
 
 func newChain(opt *CoinConf, wallet claws.Wallet) *Chain {
 	ctx, cancel := context.WithCancel(context.Background())
+	stg := newStorage(opt.Code)
+	cache, addrs := getCacheConfig(opt.Code)
+	opt.Endpoint = cache.EndPoint
+
 	chain := &Chain{
 		Mutex:       &sync.Mutex{},
-		addrs:       make(map[string]bool),
+		addrs:       addrs,
 		syncedTxs:   make(map[string]int64),
 		config:      opt,
 		wallet:      wallet,
 		depositTxs:  NewQueue(),
 		withdrawTxs: NewQueue(),
-		storage:     newStorage(opt.Code),
+		storage:     stg,
 		noticer:     make(chan *big.Int, 1024),
 		ctx:         ctx,
 		cancel:      cancel,
@@ -99,7 +102,7 @@ func (c *Chain) start() {
 		for {
 			select {
 			case <-c.ctx.Done():
-				saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: c.height})
+				saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: c.height}, c.addrs)
 				wg.Done()
 				log.Info().Msgf("%s stopped, endpoint: %d", strings.ToUpper(c.config.Code), c.height)
 				return
@@ -114,7 +117,6 @@ func (c *Chain) start() {
 				height := num.Int64()
 				if height > c.height {
 					c.height = height
-					saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: c.height})
 				}
 				c.syncEndpoint(c.config.Endpoint, height)
 				c.syncBlock(num)
@@ -231,17 +233,15 @@ func (c *Chain) emitter() {
 	}
 }
 
-func (c *Chain) add(addrs []string) (height int64, err error) {
+func (c *Chain) add(addrs []string) (height int64) {
 	c.Lock()
 	defer c.Unlock()
 	for i, _ := range addrs {
 		addr := addrs[i]
-		if _, exist := c.addrs[addr]; exist {
-			return 0, errors.New("repeat add")
-		}
 		c.addrs[addr] = true
 	}
-	return c.height, nil
+	addAddr(c.config.Code, addrs)
+	return c.height
 }
 
 func (c *Chain) getEventID(height int64, event EventType, idx int64) int64 {
