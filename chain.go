@@ -8,7 +8,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"math/big"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -33,7 +32,7 @@ const (
 type PotEvent struct {
 	Chain   string
 	Event   EventType
-	ID      int64
+	ID      string
 	Content *BlockMessage
 }
 
@@ -87,7 +86,7 @@ func (c *Chain) start() {
 
 	go func() {
 		err := c.wallet.NotifyHead(c.ctx, func(num *big.Int) {
-			log.Info().Msgf("%s received new block from claws ", num.String())
+			//log.Info().Msgf("%s received new block from claws ", num.String())
 			c.noticer <- num
 		})
 		if err != nil {
@@ -127,7 +126,7 @@ func (c *Chain) start() {
 
 func (c *Chain) syncBlock(num *big.Int) {
 	var height = num.Int64()
-	log.Debug().Msgf("%s Synchronizing Block: %d", strings.ToUpper(c.config.Code), height)
+	log.Info().Msgf("%s Synchronizing Block: %d", strings.ToUpper(c.config.Code), height)
 	txns, err := c.wallet.UnfoldTxs(context.Background(), num)
 	if err != nil {
 		return
@@ -151,7 +150,7 @@ func (c *Chain) syncBlock(num *big.Int) {
 		if tx.FromStr() == tx.ToStr() {
 			c.onMessage(&PotEvent{
 				Chain: c.config.Code,
-				ID:    c.getEventID(height, T_ERROR, int64(i)),
+				ID:    c.getEventID(height, height, T_ERROR, int64(i)),
 				Event: T_ERROR,
 			})
 		} else if f1 && f2 {
@@ -202,7 +201,7 @@ func (c *Chain) emitter() {
 			msg.Event = T_DEPOSIT_UPDATE
 			c.depositTxs.PushBack(val)
 		}
-		msg.ID = c.getEventID(val.Height, msg.Event, val.Index)
+		msg.ID = c.getEventID(c.height, val.Height, msg.Event, val.Index)
 		log.Debug().Msgf("New Event: %s", mustMarshal(msg))
 		c.onMessage(msg)
 	}
@@ -227,7 +226,7 @@ func (c *Chain) emitter() {
 			msg.Event = T_WITHDRAW_UPDATE
 			c.withdrawTxs.PushBack(val)
 		}
-		msg.ID = c.getEventID(val.Height, msg.Event, val.Index)
+		msg.ID = c.getEventID(c.height, val.Height, msg.Event, val.Index)
 		log.Debug().Msgf("New Event: %s", mustMarshal(msg))
 		c.onMessage(msg)
 	}
@@ -244,10 +243,8 @@ func (c *Chain) add(addrs []string) (height int64) {
 	return c.height
 }
 
-func (c *Chain) getEventID(height int64, event EventType, idx int64) int64 {
-	var str = fmt.Sprintf("%d%04d%03d%02d", height, idx, c.config.Idx, event)
-	num, _ := strconv.Atoi(str)
-	return int64(num)
+func (c *Chain) getEventID(currentHeight int64, realHeight int64, event EventType, idx int64) string {
+	return fmt.Sprintf("%d%d%04d%03d%02d", currentHeight, realHeight, idx, c.config.Idx, event)
 }
 
 func mustMarshal(v interface{}) string {
