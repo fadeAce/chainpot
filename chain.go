@@ -135,8 +135,8 @@ func (c *Chain) syncBlock(num *big.Int) {
 	var block = make([]*BlockMessage, 0)
 	for i, _ := range txns {
 		var tx = txns[i]
-		var _, f1 = c.addrs[tx.ToStr()]
-		var _, f2 = c.addrs[tx.FromStr()]
+		var _, f1 = c.addrs[tx.FromStr()]
+		var _, f2 = c.addrs[tx.ToStr()]
 		if !f1 && !f2 {
 			continue
 		}
