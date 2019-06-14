@@ -86,8 +86,8 @@ func (c *Chain) start() {
 
 	go func() {
 		err := c.wallet.NotifyHead(c.ctx, func(num *big.Int) {
-			//log.Info().Msgf("%s received new block from claws ", num.String())
 			c.noticer <- num
+			saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: num.Int64()}, nil)
 		})
 		if err != nil {
 			log.Error().Msgf("fatal error when starting head syncing: %s", err.Error())
