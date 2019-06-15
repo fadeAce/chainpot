@@ -87,6 +87,7 @@ func (c *Chain) start() {
 	go func() {
 		err := c.wallet.NotifyHead(c.ctx, func(num *big.Int) {
 			c.noticer <- num
+			log.Info().Msgf("%s received new block from claws ", num.String())
 			saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: num.Int64()}, nil)
 		})
 		if err != nil {
