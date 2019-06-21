@@ -62,6 +62,7 @@ func newChain(opt *CoinConf, wallet claws.Wallet) *Chain {
 	chain := &Chain{
 		Mutex:       &sync.Mutex{},
 		addrs:       addrs,
+		height:      opt.Endpoint,
 		syncedTxs:   make(map[string]int64),
 		config:      opt,
 		wallet:      wallet,
