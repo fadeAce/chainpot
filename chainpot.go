@@ -123,6 +123,7 @@ func (c *Chainpot) Add(idx int, addrs []string) (height int64) {
 	if chain != nil {
 		return c.chains[idx].add(addrs)
 	}
+	panic("try to add address at non exist chain")
 	return 0
 }
 
