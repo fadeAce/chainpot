@@ -195,13 +195,14 @@ func saveCacheConfig(chain string, cfg *cacheConfig, addrs map[string]bool) {
 	}
 }
 
-func addAddr(chain string, addrs []string) error {
+func addAddr(chain string, height int64, addrs []string) error {
+	h := strconv.Itoa(int(height))
 	err := cfgDB.Update(func(tx *bolt.Tx) error {
 		bucketName := []byte(fmt.Sprintf("%s_addrs", strings.ToLower(chain)))
 		bucket := tx.Bucket(bucketName)
 		var hasError error
 		for _, addr := range addrs {
-			err := bucket.Put([]byte(addr), []byte(""))
+			err := bucket.Put([]byte(addr), []byte(h))
 			if err != nil {
 				hasError = err
 				log.Error().Msgf("BoltDB Put Error: %s", err.Error())

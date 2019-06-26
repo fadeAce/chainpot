@@ -241,7 +241,7 @@ func (c *Chain) add(addrs []string) (height int64) {
 		addr := addrs[i]
 		c.addrs[addr] = true
 	}
-	addAddr(c.config.Code, addrs)
+	addAddr(c.config.Code, c.height, addrs)
 	return c.height
 }
 
