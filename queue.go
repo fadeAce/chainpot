@@ -3,9 +3,10 @@ package chainpot
 import "github.com/fadeAce/claws/types"
 
 type Value struct {
-	TXN    types.TXN
-	Height int64
-	Index  int64
+	TXN        types.TXN
+	Height     int64
+	Index      int64
+	IsOldBlock bool
 }
 
 type Queue struct {

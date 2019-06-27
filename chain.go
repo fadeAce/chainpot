@@ -120,13 +120,13 @@ func (c *Chain) start() {
 					c.height = height
 				}
 				c.syncEndpoint(c.config.Endpoint, height)
-				c.syncBlock(num)
+				c.syncBlock(num, false)
 			}
 		}
 	}()
 }
 
-func (c *Chain) syncBlock(num *big.Int) {
+func (c *Chain) syncBlock(num *big.Int, isOldBlock bool) {
 	var height = num.Int64()
 	log.Info().Msgf("%s Synchronizing Block: %d", strings.ToUpper(c.config.Code), height)
 	txns, err := c.wallet.UnfoldTxs(context.Background(), num)
@@ -148,7 +148,7 @@ func (c *Chain) syncBlock(num *big.Int) {
 
 		block = append(block, NewBlockMessage(tx))
 		c.syncedTxs[tx.HexStr()] = time.Now().UnixNano() / 1000000
-		var node = &Value{TXN: tx, Height: height, Index: int64(i)}
+		var node = &Value{TXN: tx, Height: height, Index: int64(i), IsOldBlock: isOldBlock}
 		if tx.FromStr() == tx.ToStr() {
 			c.onMessage(&PotEvent{
 				Chain: c.config.Code,
@@ -176,7 +176,7 @@ func (c *Chain) syncEndpoint(endpoint int64, currentHeight int64) {
 	}
 
 	for i := endpoint - c.config.ConfirmTimes; i < currentHeight; i++ {
-		c.syncBlock(big.NewInt(i))
+		c.syncBlock(big.NewInt(i), true)
 	}
 	c.syncedEndPoint = true
 }
@@ -192,6 +192,23 @@ func (c *Chain) emitter() {
 		}
 
 		if c.height-val.Height+1 >= c.config.ConfirmTimes {
+			if val.IsOldBlock {
+				initMsg := &PotEvent{
+					Chain:   msg.Chain,
+					Event:   T_DEPOSIT,
+					Content: msg.Content,
+					ID:      c.getEventID(c.height, val.Height, T_DEPOSIT, val.Index),
+				}
+				c.onMessage(initMsg)
+				updateMsg := &PotEvent{
+					Chain:   msg.Chain,
+					Event:   T_DEPOSIT_UPDATE,
+					Content: msg.Content,
+					ID:      c.getEventID(c.height, val.Height, T_DEPOSIT_UPDATE, val.Index),
+				}
+				c.onMessage(updateMsg)
+			}
+
 			msg.Event = T_DEPOSIT_CONFIRM
 			if !c.wallet.Seek(val.TXN) {
 				continue
@@ -217,6 +234,23 @@ func (c *Chain) emitter() {
 		}
 
 		if c.height-val.Height+1 >= c.config.ConfirmTimes {
+			if val.IsOldBlock {
+				initMsg := &PotEvent{
+					Chain:   msg.Chain,
+					Event:   T_WITHDRAW,
+					Content: msg.Content,
+					ID:      c.getEventID(c.height, val.Height, T_WITHDRAW, val.Index),
+				}
+				c.onMessage(initMsg)
+				updateMsg := &PotEvent{
+					Chain:   msg.Chain,
+					Event:   T_WITHDRAW_UPDATE,
+					Content: msg.Content,
+					ID:      c.getEventID(c.height, val.Height, T_WITHDRAW_UPDATE, val.Index),
+				}
+				c.onMessage(updateMsg)
+			}
+
 			msg.Event = T_WITHDRAW_CONFIRM
 			if !c.wallet.Seek(val.TXN) {
 				msg.Event = T_WITHDRAW_FAIL
