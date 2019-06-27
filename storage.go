@@ -21,6 +21,7 @@ type storage struct {
 
 type cacheConfig struct {
 	EndPoint int64
+	EventID  int64
 }
 
 var (

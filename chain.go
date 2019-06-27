@@ -32,7 +32,7 @@ const (
 type PotEvent struct {
 	Chain   string
 	Event   EventType
-	ID      string
+	ID      int64
 	Content *BlockMessage
 }
 
@@ -50,6 +50,7 @@ type Chain struct {
 	noticer        chan *big.Int
 	onMessage      func(msg *PotEvent)
 	messageQueue   chan *PotEvent
+	EventID        int64
 	ctx            context.Context
 	cancel         context.CancelFunc
 }
@@ -74,6 +75,7 @@ func newChain(opt *CoinConf, wallet claws.Wallet) *Chain {
 		noticer:      make(chan *big.Int, 128),
 		ctx:          ctx,
 		cancel:       cancel,
+		EventID:      cache.EventID,
 	}
 
 	var fp = cachePath + "/" + opt.Code
@@ -91,7 +93,7 @@ func (c *Chain) start() {
 		err := c.wallet.NotifyHead(c.ctx, func(num *big.Int) {
 			c.noticer <- num
 			log.Info().Msgf("%s received new block from claws ", num.String())
-			saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: num.Int64()}, nil)
+			saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: num.Int64(), EventID: c.EventID}, nil)
 		})
 		if err != nil {
 			log.Error().Msgf("fatal error when starting head syncing: %s", err.Error())
@@ -105,7 +107,6 @@ func (c *Chain) start() {
 		for {
 			select {
 			case <-c.ctx.Done():
-				saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: c.height}, c.addrs)
 				wg.Done()
 				log.Info().Msgf("%s stopped, endpoint: %d", strings.ToUpper(c.config.Code), c.height)
 				return
@@ -124,6 +125,12 @@ func (c *Chain) start() {
 				c.syncEndpoint(c.config.Endpoint, height)
 				c.syncBlock(num, false)
 			case event := <-c.messageQueue:
+				c.EventID++
+				event.ID = c.EventID
+				saveCacheConfig(c.config.Code, &cacheConfig{
+					EndPoint: c.height,
+					EventID:  c.EventID,
+				}, c.addrs)
 				log.Debug().Msgf("New Event: %s", mustMarshal(event))
 				c.onMessage(event)
 			}
@@ -157,7 +164,6 @@ func (c *Chain) syncBlock(num *big.Int, isOldBlock bool) {
 		if tx.FromStr() == tx.ToStr() {
 			c.messageQueue <- &PotEvent{
 				Chain: c.config.Code,
-				ID:    c.getEventID(height, height, T_ERROR, int64(i)),
 				Event: T_ERROR,
 			}
 		} else if f1 && f2 {
@@ -180,7 +186,7 @@ func (c *Chain) syncEndpoint(endpoint int64, currentHeight int64) {
 		return
 	}
 
-	for i := endpoint - c.config.ConfirmTimes; i < currentHeight; i++ {
+	for i := endpoint; i < currentHeight; i++ {
 		c.syncBlock(big.NewInt(i), true)
 	}
 	c.syncedEndPoint = true
@@ -202,14 +208,12 @@ func (c *Chain) emitter() {
 					Chain:   msg.Chain,
 					Event:   T_DEPOSIT,
 					Content: msg.Content,
-					ID:      c.getEventID(c.height, val.Height, T_DEPOSIT, val.Index),
 				}
 				c.messageQueue <- initMsg
 				updateMsg := &PotEvent{
 					Chain:   msg.Chain,
 					Event:   T_DEPOSIT_UPDATE,
 					Content: msg.Content,
-					ID:      c.getEventID(c.height, val.Height, T_DEPOSIT_UPDATE, val.Index),
 				}
 				c.messageQueue <- updateMsg
 			}
@@ -225,7 +229,6 @@ func (c *Chain) emitter() {
 			msg.Event = T_DEPOSIT_UPDATE
 			c.depositTxs.PushBack(val)
 		}
-		msg.ID = c.getEventID(c.height, val.Height, msg.Event, val.Index)
 		c.messageQueue <- msg
 	}
 
@@ -243,14 +246,12 @@ func (c *Chain) emitter() {
 					Chain:   msg.Chain,
 					Event:   T_WITHDRAW,
 					Content: msg.Content,
-					ID:      c.getEventID(c.height, val.Height, T_WITHDRAW, val.Index),
 				}
 				c.messageQueue <- initMsg
 				updateMsg := &PotEvent{
 					Chain:   msg.Chain,
 					Event:   T_WITHDRAW_UPDATE,
 					Content: msg.Content,
-					ID:      c.getEventID(c.height, val.Height, T_WITHDRAW_UPDATE, val.Index),
 				}
 				c.messageQueue <- updateMsg
 			}
@@ -266,7 +267,6 @@ func (c *Chain) emitter() {
 			msg.Event = T_WITHDRAW_UPDATE
 			c.withdrawTxs.PushBack(val)
 		}
-		msg.ID = c.getEventID(c.height, val.Height, msg.Event, val.Index)
 		c.messageQueue <- msg
 	}
 }
