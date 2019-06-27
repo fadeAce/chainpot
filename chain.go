@@ -49,6 +49,7 @@ type Chain struct {
 	storage        *storage
 	noticer        chan *big.Int
 	onMessage      func(msg *PotEvent)
+	messageQueue   chan *PotEvent
 	ctx            context.Context
 	cancel         context.CancelFunc
 }
@@ -60,18 +61,19 @@ func newChain(opt *CoinConf, wallet claws.Wallet) *Chain {
 	opt.Endpoint = cache.EndPoint
 
 	chain := &Chain{
-		Mutex:       &sync.Mutex{},
-		addrs:       addrs,
-		height:      opt.Endpoint,
-		syncedTxs:   make(map[string]int64),
-		config:      opt,
-		wallet:      wallet,
-		depositTxs:  NewQueue(),
-		withdrawTxs: NewQueue(),
-		storage:     stg,
-		noticer:     make(chan *big.Int, 1024),
-		ctx:         ctx,
-		cancel:      cancel,
+		Mutex:        &sync.Mutex{},
+		addrs:        addrs,
+		height:       opt.Endpoint,
+		syncedTxs:    make(map[string]int64),
+		config:       opt,
+		wallet:       wallet,
+		messageQueue: make(chan *PotEvent, 128),
+		depositTxs:   NewQueue(),
+		withdrawTxs:  NewQueue(),
+		storage:      stg,
+		noticer:      make(chan *big.Int, 128),
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 
 	var fp = cachePath + "/" + opt.Code
@@ -121,6 +123,9 @@ func (c *Chain) start() {
 				}
 				c.syncEndpoint(c.config.Endpoint, height)
 				c.syncBlock(num, false)
+			case event := <-c.messageQueue:
+				log.Debug().Msgf("New Event: %s", mustMarshal(event))
+				c.onMessage(event)
 			}
 		}
 	}()
@@ -150,11 +155,11 @@ func (c *Chain) syncBlock(num *big.Int, isOldBlock bool) {
 		c.syncedTxs[tx.HexStr()] = time.Now().UnixNano() / 1000000
 		var node = &Value{TXN: tx, Height: height, Index: int64(i), IsOldBlock: isOldBlock}
 		if tx.FromStr() == tx.ToStr() {
-			c.onMessage(&PotEvent{
+			c.messageQueue <- &PotEvent{
 				Chain: c.config.Code,
 				ID:    c.getEventID(height, height, T_ERROR, int64(i)),
 				Event: T_ERROR,
-			})
+			}
 		} else if f1 && f2 {
 			c.withdrawTxs.PushBack(node)
 			var cp = *node
@@ -199,14 +204,14 @@ func (c *Chain) emitter() {
 					Content: msg.Content,
 					ID:      c.getEventID(c.height, val.Height, T_DEPOSIT, val.Index),
 				}
-				c.onMessage(initMsg)
+				c.messageQueue <- initMsg
 				updateMsg := &PotEvent{
 					Chain:   msg.Chain,
 					Event:   T_DEPOSIT_UPDATE,
 					Content: msg.Content,
 					ID:      c.getEventID(c.height, val.Height, T_DEPOSIT_UPDATE, val.Index),
 				}
-				c.onMessage(updateMsg)
+				c.messageQueue <- updateMsg
 			}
 
 			msg.Event = T_DEPOSIT_CONFIRM
@@ -221,8 +226,7 @@ func (c *Chain) emitter() {
 			c.depositTxs.PushBack(val)
 		}
 		msg.ID = c.getEventID(c.height, val.Height, msg.Event, val.Index)
-		log.Debug().Msgf("New Event: %s", mustMarshal(msg))
-		c.onMessage(msg)
+		c.messageQueue <- msg
 	}
 
 	var n = c.withdrawTxs.Len()
@@ -241,14 +245,14 @@ func (c *Chain) emitter() {
 					Content: msg.Content,
 					ID:      c.getEventID(c.height, val.Height, T_WITHDRAW, val.Index),
 				}
-				c.onMessage(initMsg)
+				c.messageQueue <- initMsg
 				updateMsg := &PotEvent{
 					Chain:   msg.Chain,
 					Event:   T_WITHDRAW_UPDATE,
 					Content: msg.Content,
 					ID:      c.getEventID(c.height, val.Height, T_WITHDRAW_UPDATE, val.Index),
 				}
-				c.onMessage(updateMsg)
+				c.messageQueue <- updateMsg
 			}
 
 			msg.Event = T_WITHDRAW_CONFIRM
@@ -263,8 +267,7 @@ func (c *Chain) emitter() {
 			c.withdrawTxs.PushBack(val)
 		}
 		msg.ID = c.getEventID(c.height, val.Height, msg.Event, val.Index)
-		log.Debug().Msgf("New Event: %s", mustMarshal(msg))
-		c.onMessage(msg)
+		c.messageQueue <- msg
 	}
 }
 
