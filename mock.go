@@ -83,8 +83,8 @@ func (c *MaskWallet) NotifyHead(ctx context.Context, f func(num *big.Int)) error
 	return nil
 }
 
-func (c *MaskWallet) Send(ctx context.Context, from, to types.Bundle, amount string, option *types.Option) (res string, err error) {
-	return "", nil
+func (c *MaskWallet) Send(ctx context.Context, from, to types.Bundle, amount string, option *types.Option) (res types.Transaction, err error) {
+	return nil, nil
 }
 
 func pushBack(height int64, tx BlockMessage) {
