@@ -21,7 +21,6 @@ type storage struct {
 
 type cacheConfig struct {
 	EndPoint int64
-	EventID  int64
 }
 
 var (
@@ -37,12 +36,18 @@ func initStorage(path string) {
 		return
 	}
 
-	updateError := db.Update(func(tx *bolt.Tx) error {
+	if err := db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte("event_id"))
+		return err
+	}); err != nil {
+		log.Fatal().Msgf("Init BoltDb Error: %s", err.Error())
+	}
+
+	if err := db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte("config"))
 		return err
-	})
-	if updateError != nil {
-		log.Error().Msg(updateError.Error())
+	}); err != nil {
+		log.Fatal().Msgf("Init BoltDb Error: %s", err.Error())
 	}
 	cfgDB = db
 }
@@ -248,4 +253,35 @@ func decode(data []byte) []*BlockMessage {
 	var obj = make([]*BlockMessage, 0)
 	json.Unmarshal(data, &obj)
 	return obj
+}
+
+func SaveLatestEventID(id int64) error {
+	err := cfgDB.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte("event_id"))
+		ids := strconv.Itoa(int(id))
+		return bucket.Put([]byte("latest_id"), []byte(ids))
+	})
+	if err != nil {
+		log.Error().Msgf("Save LatestId Error: %s", err.Error())
+	}
+	return err
+}
+
+func GetOldEventID() (event_id int64) {
+	err := cfgDB.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte("event_id"))
+		res := bucket.Get([]byte("latest_id"))
+		if len(res) == 0 {
+			event_id = 1
+			return nil
+		}
+
+		id, err := strconv.Atoi(string(res))
+		event_id = int64(id)
+		return err
+	})
+	if err != nil {
+		log.Fatal().Msgf("Init EventID Failed: %s", err.Error())
+	}
+	return
 }

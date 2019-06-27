@@ -30,10 +30,16 @@ const (
 )
 
 type PotEvent struct {
-	Chain   string
-	Event   EventType
-	ID      int64
-	Content *BlockMessage
+	Chain      string
+	Event      EventType
+	ID         int64
+	Content    *BlockMessage
+	isOldBlock bool
+}
+
+type EventIdInterface interface {
+	Get(hash string) (id int64, err error)
+	Set(hash string, firstId int64) error
 }
 
 type Chain struct {
@@ -50,7 +56,6 @@ type Chain struct {
 	noticer        chan *big.Int
 	onMessage      func(msg *PotEvent)
 	messageQueue   chan *PotEvent
-	EventID        int64
 	ctx            context.Context
 	cancel         context.CancelFunc
 }
@@ -75,7 +80,6 @@ func newChain(opt *CoinConf, wallet claws.Wallet) *Chain {
 		noticer:      make(chan *big.Int, 128),
 		ctx:          ctx,
 		cancel:       cancel,
-		EventID:      cache.EventID,
 	}
 
 	var fp = cachePath + "/" + opt.Code
@@ -93,7 +97,7 @@ func (c *Chain) start() {
 		err := c.wallet.NotifyHead(c.ctx, func(num *big.Int) {
 			c.noticer <- num
 			log.Info().Msgf("%s received new block from claws ", num.String())
-			saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: num.Int64(), EventID: c.EventID}, nil)
+			saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: num.Int64()}, nil)
 		})
 		if err != nil {
 			log.Error().Msgf("fatal error when starting head syncing: %s", err.Error())
@@ -122,15 +126,30 @@ func (c *Chain) start() {
 				if height > c.height {
 					c.height = height
 				}
+				saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: c.height}, c.addrs)
 				c.syncEndpoint(c.config.Endpoint, height)
 				c.syncBlock(num, false)
 			case event := <-c.messageQueue:
-				c.EventID++
-				event.ID = c.EventID
-				saveCacheConfig(c.config.Code, &cacheConfig{
-					EndPoint: c.height,
-					EventID:  c.EventID,
-				}, c.addrs)
+				if event.Event == T_WITHDRAW || event.Event == T_DEPOSIT {
+					if event.isOldBlock {
+						id, err := eidStorage.Get(event.Content.Hash)
+						if err != nil {
+							log.Fatal().Msgf("Get the first_id of %s error: %s", err.Error())
+						}
+						globalFirstID = id
+						globalEventID = id
+					} else {
+						if err := eidStorage.Set(event.Content.Hash, globalFirstID); err != nil {
+							log.Error().Msgf("Save FirstID Error: %s", err.Error())
+						}
+					}
+				}
+
+				event.ID = globalEventID
+				globalEventID++
+				if event.Event == T_DEPOSIT_CONFIRM || event.Event == T_WITHDRAW_CONFIRM {
+					globalFirstID += 20
+				}
 				log.Debug().Msgf("New Event: %s", mustMarshal(event))
 				c.onMessage(event)
 			}
@@ -198,8 +217,9 @@ func (c *Chain) emitter() {
 	for i := 0; i < m; i++ {
 		var val = c.depositTxs.Front()
 		var msg = &PotEvent{
-			Chain:   c.config.Code,
-			Content: NewBlockMessage(val.TXN),
+			Chain:      c.config.Code,
+			Content:    NewBlockMessage(val.TXN),
+			isOldBlock: val.IsOldBlock,
 		}
 
 		if c.height-val.Height+1 >= c.config.ConfirmTimes {
@@ -210,12 +230,15 @@ func (c *Chain) emitter() {
 					Content: msg.Content,
 				}
 				c.messageQueue <- initMsg
-				updateMsg := &PotEvent{
-					Chain:   msg.Chain,
-					Event:   T_DEPOSIT_UPDATE,
-					Content: msg.Content,
+
+				for j := 0; j < int(c.config.ConfirmTimes-2); j++ {
+					updateMsg := &PotEvent{
+						Chain:   msg.Chain,
+						Event:   T_DEPOSIT_UPDATE,
+						Content: msg.Content,
+					}
+					c.messageQueue <- updateMsg
 				}
-				c.messageQueue <- updateMsg
 			}
 
 			msg.Event = T_DEPOSIT_CONFIRM
@@ -248,12 +271,15 @@ func (c *Chain) emitter() {
 					Content: msg.Content,
 				}
 				c.messageQueue <- initMsg
-				updateMsg := &PotEvent{
-					Chain:   msg.Chain,
-					Event:   T_WITHDRAW_UPDATE,
-					Content: msg.Content,
+
+				for j := 0; j < int(c.config.ConfirmTimes-2); j++ {
+					updateMsg := &PotEvent{
+						Chain:   msg.Chain,
+						Event:   T_WITHDRAW_UPDATE,
+						Content: msg.Content,
+					}
+					c.messageQueue <- updateMsg
 				}
-				c.messageQueue <- updateMsg
 			}
 
 			msg.Event = T_WITHDRAW_CONFIRM
