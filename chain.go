@@ -3,7 +3,6 @@ package chainpot
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"github.com/fadeAce/claws"
 	"github.com/rs/zerolog/log"
 	"math/big"
@@ -32,8 +31,17 @@ const (
 type PotEvent struct {
 	Chain   string
 	Event   EventType
-	ID      string
+	ID      int64
 	Content *BlockMessage
+}
+
+func (c *PotEvent) Next(e EventType) *PotEvent {
+	return &PotEvent{
+		Chain:   c.Chain,
+		Event:   e,
+		ID:      c.ID + 1,
+		Content: c.Content,
+	}
 }
 
 type Chain struct {
@@ -42,6 +50,7 @@ type Chain struct {
 	syncedTxs      map[string]int64
 	config         *CoinConf
 	height         int64
+	eventID        int64
 	syncedEndPoint bool
 	wallet         claws.Wallet
 	depositTxs     *Queue
@@ -64,6 +73,7 @@ func newChain(opt *CoinConf, wallet claws.Wallet) *Chain {
 		Mutex:        &sync.Mutex{},
 		addrs:        addrs,
 		height:       opt.Endpoint,
+		eventID:      cache.EventID,
 		syncedTxs:    make(map[string]int64),
 		config:       opt,
 		wallet:       wallet,
@@ -90,8 +100,8 @@ func (c *Chain) start() {
 	go func() {
 		err := c.wallet.NotifyHead(c.ctx, func(num *big.Int) {
 			c.noticer <- num
-			log.Info().Msgf("%s received new block from claws ", num.String())
-			saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: num.Int64()}, nil)
+			//log.Info().Msgf("%s received new block from claws ", num.String())
+			saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: num.Int64(), EventID: c.eventID}, nil)
 		})
 		if err != nil {
 			log.Error().Msgf("fatal error when starting head syncing: %s", err.Error())
@@ -105,7 +115,7 @@ func (c *Chain) start() {
 		for {
 			select {
 			case <-c.ctx.Done():
-				saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: c.height}, c.addrs)
+				saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: c.height, EventID: c.eventID}, c.addrs)
 				wg.Done()
 				log.Info().Msgf("%s stopped, endpoint: %d", strings.ToUpper(c.config.Code), c.height)
 				return
@@ -118,11 +128,13 @@ func (c *Chain) start() {
 				}
 			case num := <-c.noticer:
 				height := num.Int64()
+				var isNextHeight = false
 				if height > c.height {
 					c.height = height
+					isNextHeight = true
 				}
 				c.syncEndpoint(c.config.Endpoint, height)
-				c.syncBlock(num, false)
+				c.syncBlock(num, false, isNextHeight)
 			case event := <-c.messageQueue:
 				log.Debug().Msgf("New Event: %s", mustMarshal(event))
 				c.onMessage(event)
@@ -131,7 +143,8 @@ func (c *Chain) start() {
 	}()
 }
 
-func (c *Chain) syncBlock(num *big.Int, isOldBlock bool) {
+// @param isNextHeight bool "if current height is bigger than last"
+func (c *Chain) syncBlock(num *big.Int, isOldBlock bool, isNextHeight bool) {
 	var height = num.Int64()
 	log.Info().Msgf("%s Synchronizing Block: %d", strings.ToUpper(c.config.Code), height)
 	txns, err := c.wallet.UnfoldTxs(context.Background(), num)
@@ -153,26 +166,31 @@ func (c *Chain) syncBlock(num *big.Int, isOldBlock bool) {
 
 		block = append(block, NewBlockMessage(tx))
 		c.syncedTxs[tx.HexStr()] = time.Now().UnixNano() / 1000000
-		var node = &Value{TXN: tx, Height: height, Index: int64(i), IsOldBlock: isOldBlock}
+		var node = &Value{TXN: tx, Height: height, Index: int64(i), IsOldBlock: isOldBlock, EventID: c.eventID}
 		if tx.FromStr() == tx.ToStr() {
 			c.messageQueue <- &PotEvent{
 				Chain: c.config.Code,
-				ID:    c.getEventID(height, height, T_ERROR, int64(i)),
 				Event: T_ERROR,
 			}
 		} else if f1 && f2 {
 			c.withdrawTxs.PushBack(node)
+			c.eventID += 20
 			var cp = *node
 			c.depositTxs.PushBack(&cp)
+			c.eventID += 20
 		} else if f1 {
 			c.withdrawTxs.PushBack(node)
+			c.eventID += 20
 		} else if f2 {
 			c.depositTxs.PushBack(node)
+			c.eventID += 20
 		}
 	}
 
 	c.storage.saveBlock(height, block)
-	c.emitter()
+	if isNextHeight {
+		c.emitter()
+	}
 }
 
 func (c *Chain) syncEndpoint(endpoint int64, currentHeight int64) {
@@ -181,7 +199,7 @@ func (c *Chain) syncEndpoint(endpoint int64, currentHeight int64) {
 	}
 
 	for i := endpoint - c.config.ConfirmTimes; i < currentHeight; i++ {
-		c.syncBlock(big.NewInt(i), true)
+		c.syncBlock(big.NewInt(i), true, true)
 	}
 	c.syncedEndPoint = true
 }
@@ -194,27 +212,21 @@ func (c *Chain) emitter() {
 		var msg = &PotEvent{
 			Chain:   c.config.Code,
 			Content: NewBlockMessage(val.TXN),
+			ID:      val.EventID,
+		}
+
+		if val.IsOldBlock {
+			msg.Event = T_DEPOSIT
+			c.messageQueue <- msg
+			for j := 0; j < int(c.config.ConfirmTimes-2); j++ {
+				c.messageQueue <- msg.Next(T_DEPOSIT_UPDATE)
+			}
+			c.messageQueue <- msg.Next(T_DEPOSIT_CONFIRM)
+			continue
 		}
 
 		if c.height-val.Height+1 >= c.config.ConfirmTimes {
-			if val.IsOldBlock {
-				initMsg := &PotEvent{
-					Chain:   msg.Chain,
-					Event:   T_DEPOSIT,
-					Content: msg.Content,
-					ID:      c.getEventID(c.height, val.Height, T_DEPOSIT, val.Index),
-				}
-				c.messageQueue <- initMsg
-				updateMsg := &PotEvent{
-					Chain:   msg.Chain,
-					Event:   T_DEPOSIT_UPDATE,
-					Content: msg.Content,
-					ID:      c.getEventID(c.height, val.Height, T_DEPOSIT_UPDATE, val.Index),
-				}
-				c.messageQueue <- updateMsg
-			}
-
-			msg.Event = T_DEPOSIT_CONFIRM
+			msg = msg.Next(T_DEPOSIT_CONFIRM)
 			if !c.wallet.Seek(val.TXN) {
 				continue
 			}
@@ -222,10 +234,10 @@ func (c *Chain) emitter() {
 			msg.Event = T_DEPOSIT
 			c.depositTxs.PushBack(val)
 		} else {
-			msg.Event = T_DEPOSIT_UPDATE
+			msg = msg.Next(T_DEPOSIT_UPDATE)
+			val.EventID = msg.ID
 			c.depositTxs.PushBack(val)
 		}
-		msg.ID = c.getEventID(c.height, val.Height, msg.Event, val.Index)
 		c.messageQueue <- msg
 	}
 
@@ -235,38 +247,32 @@ func (c *Chain) emitter() {
 		var msg = &PotEvent{
 			Chain:   c.config.Code,
 			Content: NewBlockMessage(val.TXN),
+			ID:      val.EventID,
+		}
+
+		if val.IsOldBlock {
+			msg.Event = T_WITHDRAW
+			c.messageQueue <- msg
+			for j := 0; j < int(c.config.ConfirmTimes-2); j++ {
+				c.messageQueue <- msg.Next(T_WITHDRAW_UPDATE)
+			}
+			c.messageQueue <- msg.Next(T_WITHDRAW_CONFIRM)
+			continue
 		}
 
 		if c.height-val.Height+1 >= c.config.ConfirmTimes {
-			if val.IsOldBlock {
-				initMsg := &PotEvent{
-					Chain:   msg.Chain,
-					Event:   T_WITHDRAW,
-					Content: msg.Content,
-					ID:      c.getEventID(c.height, val.Height, T_WITHDRAW, val.Index),
-				}
-				c.messageQueue <- initMsg
-				updateMsg := &PotEvent{
-					Chain:   msg.Chain,
-					Event:   T_WITHDRAW_UPDATE,
-					Content: msg.Content,
-					ID:      c.getEventID(c.height, val.Height, T_WITHDRAW_UPDATE, val.Index),
-				}
-				c.messageQueue <- updateMsg
-			}
-
-			msg.Event = T_WITHDRAW_CONFIRM
+			msg = msg.Next(T_WITHDRAW_CONFIRM)
 			if !c.wallet.Seek(val.TXN) {
-				msg.Event = T_WITHDRAW_FAIL
+				continue
 			}
 		} else if c.height-val.Height == 0 {
 			msg.Event = T_WITHDRAW
 			c.withdrawTxs.PushBack(val)
 		} else {
-			msg.Event = T_WITHDRAW_UPDATE
+			msg = msg.Next(T_WITHDRAW_UPDATE)
+			val.EventID = msg.ID
 			c.withdrawTxs.PushBack(val)
 		}
-		msg.ID = c.getEventID(c.height, val.Height, msg.Event, val.Index)
 		c.messageQueue <- msg
 	}
 }
@@ -280,10 +286,6 @@ func (c *Chain) add(addrs []string) (height int64) {
 	}
 	addAddr(c.config.Code, c.height, addrs)
 	return c.height
-}
-
-func (c *Chain) getEventID(currentHeight int64, realHeight int64, event EventType, idx int64) string {
-	return fmt.Sprintf("%d%d%04d%03d%02d", currentHeight, realHeight, idx, c.config.Idx, event)
 }
 
 func mustMarshal(v interface{}) string {

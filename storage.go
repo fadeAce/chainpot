@@ -21,6 +21,7 @@ type storage struct {
 
 type cacheConfig struct {
 	EndPoint int64
+	EventID  int64
 }
 
 var (
@@ -150,6 +151,9 @@ func getCacheConfig(chain string) (cfg *cacheConfig, addrs map[string]bool) {
 		bs := bucket.Get([]byte(chain))
 		return json.Unmarshal(bs, cfg)
 	})
+	if cfg.EventID == 0 {
+		cfg.EventID = 1
+	}
 
 	addrs = make(map[string]bool)
 	cfgDB.View(func(tx *bolt.Tx) error {

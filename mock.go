@@ -13,10 +13,13 @@ var (
 	testHeight = 1
 )
 
+func initMock() {
+	testMsgs = make(map[int64]*[]BlockMessage)
+}
+
 type MaskBuilder struct{}
 
 func (c *MaskBuilder) Build() claws.Wallet {
-	testMsgs = make(map[int64]*[]BlockMessage)
 	return &MaskWallet{}
 }
 
@@ -76,6 +79,9 @@ func (c *MaskWallet) NotifyHead(ctx context.Context, f func(num *big.Int)) error
 			select {
 			case <-ticker.C:
 				f(big.NewInt(height))
+				if height%3 == 1 {
+					f(big.NewInt(height))
+				}
 				height++
 			}
 		}

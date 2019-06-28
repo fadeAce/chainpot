@@ -6,6 +6,7 @@ type Value struct {
 	TXN        types.TXN
 	Height     int64
 	Index      int64
+	EventID    int64
 	IsOldBlock bool
 }
 

@@ -8,24 +8,31 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 )
 
 // TEST MLGB
 func TestChainpot_Ready(t *testing.T) {
+	initMock()
 	conf := &Config{
 		CachePath: "./log",
 		Coins: []*CoinConf{
-			{Code: "mlgb", URL: "ws://localhost:8546", Idx: 1, ConfirmTimes: 7},
+			{Code: "mlgb", URL: "ws://localhost:8546", Idx: 2, ConfirmTimes: 3},
 		},
 	}
+	for i, _ := range conf.Coins {
+		item := conf.Coins[i]
+		item.Code = strings.ToLower(item.Code)
+	}
+
 	var obj = &Chainpot{
 		chains: make([]*Chain, 128),
 		conf:   make(map[int]*CoinConf),
 	}
 	if path, err := filepath.Abs(conf.CachePath); err != nil {
-		panic(err)
+		log.Fatal().Msgf(err.Error())
 	} else {
 		initStorage(path)
 	}
@@ -34,6 +41,7 @@ func TestChainpot_Ready(t *testing.T) {
 	for _, item := range conf.Coins {
 		coins = append(coins, types.Coins{Url: item.URL, CoinType: item.Code})
 	}
+
 	claws.SetupGate(&types.Claws{
 		Ctx:     context.TODO(),
 		Version: "0.0.1",
@@ -45,15 +53,15 @@ func TestChainpot_Ready(t *testing.T) {
 		obj.conf[cfg.Idx] = cfg
 	}
 
-	obj.Register(1)
+	obj.Register(2)
 	pushBack(9, BlockMessage{
 		Hash:   "0xda29054d35d1af9d54e5e8aafce62fec11c716c8bef67508e2dc4ae5e3882ebb",
-		From:   "0x78aE889cd04Cb9274C2600d68CCc5058F43dB63e",
+		From:   "0x78ae889cd04cb9274c2600d68ccc5058f43db63e",
 		To:     "0x54a298ee9fccbf0ad8e55bc641d3086b81a48c41",
 		Fee:    "0.000247385",
 		Amount: "0.01",
 	})
-	obj.Add(1, []string{"0x78aE889cd04Cb9274C2600d68CCc5058F43dB63e"})
+	obj.Add(2, []string{"0x78ae889cd04cb9274c2600d68ccc5058f43db63e"})
 	obj.Start(func(idx int, event *PotEvent) {})
 
 	quit := make(chan os.Signal)
