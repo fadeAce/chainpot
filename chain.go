@@ -46,7 +46,7 @@ func (c *PotEvent) Next(e EventType) *PotEvent {
 
 type Chain struct {
 	*sync.Mutex
-	addrs          map[string]bool
+	addrs          map[string]int64
 	syncedTxs      map[string]int64
 	config         *CoinConf
 	height         int64
@@ -219,7 +219,8 @@ func (c *Chain) emitter() {
 			msg.Event = T_DEPOSIT
 			c.messageQueue <- msg
 			for j := 0; j < int(c.config.ConfirmTimes-2); j++ {
-				c.messageQueue <- msg.Next(T_DEPOSIT_UPDATE)
+				msg = msg.Next(T_DEPOSIT_UPDATE)
+				c.messageQueue <- msg
 			}
 			c.messageQueue <- msg.Next(T_DEPOSIT_CONFIRM)
 			continue
@@ -254,7 +255,8 @@ func (c *Chain) emitter() {
 			msg.Event = T_WITHDRAW
 			c.messageQueue <- msg
 			for j := 0; j < int(c.config.ConfirmTimes-2); j++ {
-				c.messageQueue <- msg.Next(T_WITHDRAW_UPDATE)
+				msg = msg.Next(T_WITHDRAW_UPDATE)
+				c.messageQueue <- msg
 			}
 			c.messageQueue <- msg.Next(T_WITHDRAW_CONFIRM)
 			continue
@@ -277,15 +279,21 @@ func (c *Chain) emitter() {
 	}
 }
 
-func (c *Chain) add(addrs []string) (height int64) {
+func (c *Chain) add(addrs []string) (records map[string]int64) {
 	c.Lock()
 	defer c.Unlock()
-	for i, _ := range addrs {
-		addr := addrs[i]
-		c.addrs[addr] = true
+
+	records = make(map[string]int64)
+	for _, addr := range addrs {
+		if height, exist := c.addrs[addr]; exist {
+			records[addr] = height
+		} else {
+			c.addrs[addr] = c.height
+			records[addr] = c.height
+		}
 	}
-	addAddr(c.config.Code, c.height, addrs)
-	return c.height
+	saveAddrs(c.config.Code, records)
+	return records
 }
 
 func mustMarshal(v interface{}) string {

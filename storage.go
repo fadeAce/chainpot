@@ -144,7 +144,7 @@ func (c *storage) getBlock(height int64) ([]*BlockMessage, error) {
 	return decode(bs), nil
 }
 
-func getCacheConfig(chain string) (cfg *cacheConfig, addrs map[string]bool) {
+func getCacheConfig(chain string) (cfg *cacheConfig, addrs map[string]int64) {
 	cfg = &cacheConfig{}
 	cfgDB.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte("config"))
@@ -155,19 +155,20 @@ func getCacheConfig(chain string) (cfg *cacheConfig, addrs map[string]bool) {
 		cfg.EventID = 1
 	}
 
-	addrs = make(map[string]bool)
+	addrs = make(map[string]int64)
 	cfgDB.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(fmt.Sprintf("%s_addrs", strings.ToLower(chain))))
 		return bucket.ForEach(func(k, v []byte) error {
 			key := string(k)
-			addrs[key] = true
+			val, _ := strconv.Atoi(string(v))
+			addrs[key] = int64(val)
 			return nil
 		})
 	})
 	return
 }
 
-func saveCacheConfig(chain string, cfg *cacheConfig, addrs map[string]bool) {
+func saveCacheConfig(chain string, cfg *cacheConfig, addrs map[string]int64) {
 	bs, _ := json.Marshal(cfg)
 	err1 := cfgDB.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte("config"))
@@ -185,8 +186,9 @@ func saveCacheConfig(chain string, cfg *cacheConfig, addrs map[string]bool) {
 		bucketName := []byte(fmt.Sprintf("%s_addrs", strings.ToLower(chain)))
 		bucket := tx.Bucket(bucketName)
 		var hasError error
-		for key, _ := range addrs {
-			err := bucket.Put([]byte(key), []byte(""))
+		for key, val := range addrs {
+			h := strconv.Itoa(int(val))
+			err := bucket.Put([]byte(key), []byte(h))
 			if err != nil {
 				hasError = err
 				log.Error().Msgf("BoltDB Put Error: %s", err.Error())
@@ -199,13 +201,13 @@ func saveCacheConfig(chain string, cfg *cacheConfig, addrs map[string]bool) {
 	}
 }
 
-func addAddr(chain string, height int64, addrs []string) error {
-	h := strconv.Itoa(int(height))
+func saveAddrs(chain string, records map[string]int64) error {
 	err := cfgDB.Update(func(tx *bolt.Tx) error {
 		bucketName := []byte(fmt.Sprintf("%s_addrs", strings.ToLower(chain)))
 		bucket := tx.Bucket(bucketName)
 		var hasError error
-		for _, addr := range addrs {
+		for addr, height := range records {
+			h := strconv.Itoa(int(height))
 			err := bucket.Put([]byte(addr), []byte(h))
 			if err != nil {
 				hasError = err

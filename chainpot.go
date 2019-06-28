@@ -118,13 +118,13 @@ func (c *Chainpot) Register(idx int) error {
 	return nil
 }
 
-func (c *Chainpot) Add(idx int, addrs []string) (height int64) {
+func (c *Chainpot) Add(idx int, addrs []string) map[string]int64 {
 	chain := c.chains[idx]
 	if chain != nil {
 		return c.chains[idx].add(addrs)
 	}
 	panic("try to add address at non exist chain")
-	return 0
+	return nil
 }
 
 func (c *Chainpot) Start(fn MessageHandler) {
