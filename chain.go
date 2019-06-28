@@ -6,6 +6,7 @@ import (
 	"github.com/fadeAce/claws"
 	"github.com/rs/zerolog/log"
 	"math/big"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -147,7 +148,6 @@ func (c *Chain) syncBlock(num *big.Int, isOldBlock bool, isNextHeight bool) {
 		return
 	}
 
-	var block = make([]*BlockMessage, 0)
 	for i, _ := range txns {
 		var tx = txns[i]
 		var _, f1 = c.addrs[tx.FromStr()]
@@ -159,7 +159,6 @@ func (c *Chain) syncBlock(num *big.Int, isOldBlock bool, isNextHeight bool) {
 			continue
 		}
 
-		block = append(block, NewBlockMessage(tx))
 		c.syncedTxs[tx.HexStr()] = time.Now().UnixNano() / 1000000
 		var node = &Value{TXN: tx, Height: height, Index: int64(i), IsOldBlock: isOldBlock, EventID: c.eventID}
 		if tx.FromStr() == tx.ToStr() {
@@ -298,4 +297,13 @@ func (c *Chain) add(addrs []string) (records map[string]int64) {
 func mustMarshal(v interface{}) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+func ToString(v interface{}) string {
+	if num, ok := v.(int); ok {
+		return strconv.Itoa(num)
+	} else if num, ok := v.(int64); ok {
+		return strconv.Itoa(int(num))
+	}
+	return ""
 }

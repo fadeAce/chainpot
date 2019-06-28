@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/boltdb/bolt"
-	"github.com/fadeAce/marbleBank/src/github.com/marblebank/core/qb"
 	"github.com/rs/zerolog/log"
 	"strconv"
 	"strings"
@@ -79,8 +78,8 @@ func newStorage(chain string) *storage {
 }
 
 func (c *storage) setEventID(height int64, id int64) error {
-	k := []byte(qb.ToString(height))
-	v := []byte(qb.ToString(id))
+	k := []byte(ToString(height))
+	v := []byte(ToString(id))
 	err := c.DB.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte("height_eventid"))
 		return bucket.Put(k, v)
@@ -92,7 +91,7 @@ func (c *storage) setEventID(height int64, id int64) error {
 }
 
 func (c *storage) getEventID(height int64) (event_id int64, e error) {
-	k := []byte(qb.ToString(height))
+	k := []byte(ToString(height))
 	err := c.DB.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte("height_eventid"))
 		bs := bucket.Get(k)
