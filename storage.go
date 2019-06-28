@@ -2,11 +2,10 @@ package chainpot
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/boltdb/bolt"
+	"github.com/fadeAce/marbleBank/src/github.com/marblebank/core/qb"
 	"github.com/rs/zerolog/log"
-	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,14 +13,13 @@ import (
 
 type storage struct {
 	*sync.Mutex
-	DBS   []*bolt.DB
+	DB    *bolt.DB
 	Path  string
 	Chain string
 }
 
 type cacheConfig struct {
 	EndPoint int64
-	EventID  int64
 }
 
 var (
@@ -49,16 +47,29 @@ func initStorage(path string) {
 
 func newStorage(chain string) *storage {
 	var obj = &storage{
-		DBS:   make([]*bolt.DB, 1000),
-		Path:  cachePath + "/" + chain,
 		Chain: chain,
 		Mutex: &sync.Mutex{},
+	}
+	var filename = fmt.Sprintf("%s/%s.db", cachePath, chain)
+	if db, err := bolt.Open(filename, 0755, nil); err == nil {
+		obj.DB = db
+	} else {
+		log.Fatal().Msgf("Open DB Error: %s", err.Error())
+	}
+
+	if err := obj.DB.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte("height_eventid"))
+		return err
+	}); err != nil {
+		log.Fatal().Msgf("Create Bucket Error: %s", err.Error())
 	}
 
 	err := cfgDB.Update(func(tx *bolt.Tx) error {
 		bucket := fmt.Sprintf("%s_addrs", strings.ToLower(chain))
-		_, err := tx.CreateBucketIfNotExists([]byte(bucket))
-		return err
+		if _, err := tx.CreateBucketIfNotExists([]byte(bucket)); err != nil {
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		log.Error().Msgf("BoltDB Register Chain Error: %s", err.Error())
@@ -67,81 +78,36 @@ func newStorage(chain string) *storage {
 	return obj
 }
 
-func (c *storage) getDB(height int64) (db *bolt.DB, err error) {
-	var idx = int(math.Ceil(float64(height) / 1000000))
-	if c.DBS[idx] == nil {
-		var filename = fmt.Sprintf("%s/%s_%04d.db", c.Path, c.Chain, idx)
-		db, err = bolt.Open(filename, 0755, nil)
-		if err != nil {
-			log.Fatal().Msg(err.Error())
-			return
-		}
-
-		c.Lock()
-		c.DBS[idx] = db
-		c.Unlock()
-		db.Update(func(tx *bolt.Tx) error {
-			_, err = tx.CreateBucketIfNotExists([]byte(c.Chain))
-			return err
-		})
-		return
-	} else {
-		return c.DBS[idx], nil
+func (c *storage) setEventID(height int64, id int64) error {
+	k := []byte(qb.ToString(height))
+	v := []byte(qb.ToString(id))
+	err := c.DB.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte("height_eventid"))
+		return bucket.Put(k, v)
+	})
+	if err != nil {
+		log.Error().Msgf("Set EventID Error: %s", err.Error())
 	}
+	return err
 }
 
-func (c *storage) saveBlock(height int64, block []*BlockMessage) error {
-	if len(block) == 0 {
-		return nil
-	}
-
-	var db, err = c.getDB(height)
-	if err != nil {
-		return err
-	}
-
-	putError := db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket([]byte(c.Chain))
-		k := []byte(strconv.Itoa(int(height)))
-		if oldBlock, err := c.getBlock(height); err == nil {
-			var m = make(map[string]*BlockMessage)
-			for _, item := range oldBlock {
-				m[item.Hash] = item
-			}
-			for _, item := range block {
-				m[item.Hash] = item
-			}
-			block = make([]*BlockMessage, 0)
-			for _, item := range m {
-				block = append(block, item)
-			}
+func (c *storage) getEventID(height int64) (event_id int64, e error) {
+	k := []byte(qb.ToString(height))
+	err := c.DB.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte("height_eventid"))
+		bs := bucket.Get(k)
+		if len(bs) == 0 {
+			event_id = 1
+		} else {
+			id, _ := strconv.Atoi(string(bs))
+			event_id = int64(id)
 		}
-		return bucket.Put(k, encode(block))
-	})
-
-	if putError != nil {
-		log.Error().Msg(putError.Error())
-	}
-	return putError
-}
-
-func (c *storage) getBlock(height int64) ([]*BlockMessage, error) {
-	var bs = make([]byte, 0)
-	var db, err = c.getDB(height)
-	if err != nil {
-		return nil, err
-	}
-
-	db.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket([]byte(c.Chain))
-		k := []byte(strconv.Itoa(int(height)))
-		bs = bucket.Get(k)
 		return nil
 	})
-	if len(bs) == 0 {
-		return nil, errors.New("not exist")
+	if err != nil {
+		log.Error().Msgf("Set EventID Error: %s", err.Error())
 	}
-	return decode(bs), nil
+	return event_id, err
 }
 
 func getCacheConfig(chain string) (cfg *cacheConfig, addrs map[string]int64) {
@@ -151,9 +117,6 @@ func getCacheConfig(chain string) (cfg *cacheConfig, addrs map[string]int64) {
 		bs := bucket.Get([]byte(chain))
 		return json.Unmarshal(bs, cfg)
 	})
-	if cfg.EventID == 0 {
-		cfg.EventID = 1
-	}
 
 	addrs = make(map[string]int64)
 	cfgDB.View(func(tx *bolt.Tx) error {

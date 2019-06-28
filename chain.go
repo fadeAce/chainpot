@@ -68,12 +68,10 @@ func newChain(opt *CoinConf, wallet claws.Wallet) *Chain {
 	stg := newStorage(opt.Code)
 	cache, addrs := getCacheConfig(opt.Code)
 	opt.Endpoint = cache.EndPoint
-
 	chain := &Chain{
 		Mutex:        &sync.Mutex{},
 		addrs:        addrs,
 		height:       opt.Endpoint,
-		eventID:      cache.EventID,
 		syncedTxs:    make(map[string]int64),
 		config:       opt,
 		wallet:       wallet,
@@ -101,7 +99,7 @@ func (c *Chain) start() {
 		err := c.wallet.NotifyHead(c.ctx, func(num *big.Int) {
 			c.noticer <- num
 			//log.Info().Msgf("%s received new block from claws ", num.String())
-			saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: num.Int64(), EventID: c.eventID}, nil)
+			saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: num.Int64()}, nil)
 		})
 		if err != nil {
 			log.Error().Msgf("fatal error when starting head syncing: %s", err.Error())
@@ -115,7 +113,7 @@ func (c *Chain) start() {
 		for {
 			select {
 			case <-c.ctx.Done():
-				saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: c.height, EventID: c.eventID}, c.addrs)
+				saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: c.height}, c.addrs)
 				wg.Done()
 				log.Info().Msgf("%s stopped, endpoint: %d", strings.ToUpper(c.config.Code), c.height)
 				return
@@ -146,6 +144,10 @@ func (c *Chain) start() {
 // @param isNextHeight bool "if current height is bigger than last"
 func (c *Chain) syncBlock(num *big.Int, isOldBlock bool, isNextHeight bool) {
 	var height = num.Int64()
+	if !isOldBlock {
+		c.storage.setEventID(height, c.eventID)
+	}
+
 	log.Info().Msgf("%s Synchronizing Block: %d", strings.ToUpper(c.config.Code), height)
 	txns, err := c.wallet.UnfoldTxs(context.Background(), num)
 	if err != nil {
@@ -174,30 +176,34 @@ func (c *Chain) syncBlock(num *big.Int, isOldBlock bool, isNextHeight bool) {
 			}
 		} else if f1 && f2 {
 			c.withdrawTxs.PushBack(node)
-			c.eventID += 20
+			c.eventID += c.config.ConfirmTimes
 			var cp = *node
 			c.depositTxs.PushBack(&cp)
-			c.eventID += 20
+			c.eventID += c.config.ConfirmTimes
 		} else if f1 {
 			c.withdrawTxs.PushBack(node)
-			c.eventID += 20
+			c.eventID += c.config.ConfirmTimes
 		} else if f2 {
 			c.depositTxs.PushBack(node)
-			c.eventID += 20
+			c.eventID += c.config.ConfirmTimes
 		}
 	}
 
-	c.storage.saveBlock(height, block)
 	if isNextHeight {
 		c.emitter()
 	}
 }
 
 func (c *Chain) syncEndpoint(endpoint int64, currentHeight int64) {
+	if c.eventID == 0 {
+		c.eventID++
+	}
 	if c.syncedEndPoint || c.config.Endpoint <= 0 {
 		return
 	}
 
+	id, _ := c.storage.getEventID(endpoint - c.config.ConfirmTimes)
+	c.eventID = id
 	for i := endpoint - c.config.ConfirmTimes; i < currentHeight; i++ {
 		c.syncBlock(big.NewInt(i), true, true)
 	}
