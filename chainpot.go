@@ -22,11 +22,8 @@ const (
 )
 
 var (
-	wg            *sync.WaitGroup
-	runmode       string
-	globalEventID int64
-	globalFirstID int64
-	eidStorage    EventIdInterface
+	wg      *sync.WaitGroup
+	runmode string
 )
 
 func init() {
@@ -62,15 +59,13 @@ type CoinConf struct {
 }
 
 type Config struct {
-	CachePath  string
-	Coins      []*CoinConf
-	EidStorage EventIdInterface
+	CachePath string
+	Coins     []*CoinConf
 }
 
 type MessageHandler func(idx int, event *PotEvent)
 
 func NewChainpot(conf *Config) *Chainpot {
-	eidStorage = conf.EidStorage
 	for i, _ := range conf.Coins {
 		item := conf.Coins[i]
 		item.Code = strings.ToLower(item.Code)
@@ -85,8 +80,6 @@ func NewChainpot(conf *Config) *Chainpot {
 	} else {
 		initStorage(path)
 	}
-	globalEventID = GetOldEventID()
-	globalFirstID = globalEventID
 
 	coins := make([]types.Coins, 0)
 	for _, item := range conf.Coins {

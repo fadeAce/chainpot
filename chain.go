@@ -30,16 +30,10 @@ const (
 )
 
 type PotEvent struct {
-	Chain      string
-	Event      EventType
-	ID         int64
-	Content    *BlockMessage
-	isOldBlock bool
-}
-
-type EventIdInterface interface {
-	Get(hash string) (id int64, err error)
-	Set(hash string, firstId int64) error
+	Chain   string
+	Event   EventType
+	ID      string
+	Content *BlockMessage
 }
 
 type Chain struct {
@@ -111,6 +105,7 @@ func (c *Chain) start() {
 		for {
 			select {
 			case <-c.ctx.Done():
+				saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: c.height}, c.addrs)
 				wg.Done()
 				log.Info().Msgf("%s stopped, endpoint: %d", strings.ToUpper(c.config.Code), c.height)
 				return
@@ -126,30 +121,9 @@ func (c *Chain) start() {
 				if height > c.height {
 					c.height = height
 				}
-				saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: c.height}, c.addrs)
 				c.syncEndpoint(c.config.Endpoint, height)
 				c.syncBlock(num, false)
 			case event := <-c.messageQueue:
-				if event.Event == T_WITHDRAW || event.Event == T_DEPOSIT {
-					if event.isOldBlock {
-						id, err := eidStorage.Get(event.Content.Hash)
-						if err != nil {
-							log.Fatal().Msgf("Get the first_id of %s error: %s", err.Error())
-						}
-						globalFirstID = id
-						globalEventID = id
-					} else {
-						if err := eidStorage.Set(event.Content.Hash, globalFirstID); err != nil {
-							log.Error().Msgf("Save FirstID Error: %s", err.Error())
-						}
-					}
-				}
-
-				event.ID = globalEventID
-				globalEventID++
-				if event.Event == T_DEPOSIT_CONFIRM || event.Event == T_WITHDRAW_CONFIRM {
-					globalFirstID += 20
-				}
 				log.Debug().Msgf("New Event: %s", mustMarshal(event))
 				c.onMessage(event)
 			}
@@ -183,6 +157,7 @@ func (c *Chain) syncBlock(num *big.Int, isOldBlock bool) {
 		if tx.FromStr() == tx.ToStr() {
 			c.messageQueue <- &PotEvent{
 				Chain: c.config.Code,
+				ID:    c.getEventID(height, height, T_ERROR, int64(i)),
 				Event: T_ERROR,
 			}
 		} else if f1 && f2 {
@@ -205,7 +180,7 @@ func (c *Chain) syncEndpoint(endpoint int64, currentHeight int64) {
 		return
 	}
 
-	for i := endpoint; i < currentHeight; i++ {
+	for i := endpoint - c.config.ConfirmTimes; i < currentHeight; i++ {
 		c.syncBlock(big.NewInt(i), true)
 	}
 	c.syncedEndPoint = true
@@ -217,9 +192,8 @@ func (c *Chain) emitter() {
 	for i := 0; i < m; i++ {
 		var val = c.depositTxs.Front()
 		var msg = &PotEvent{
-			Chain:      c.config.Code,
-			Content:    NewBlockMessage(val.TXN),
-			isOldBlock: val.IsOldBlock,
+			Chain:   c.config.Code,
+			Content: NewBlockMessage(val.TXN),
 		}
 
 		if c.height-val.Height+1 >= c.config.ConfirmTimes {
@@ -228,17 +202,16 @@ func (c *Chain) emitter() {
 					Chain:   msg.Chain,
 					Event:   T_DEPOSIT,
 					Content: msg.Content,
+					ID:      c.getEventID(c.height, val.Height, T_DEPOSIT, val.Index),
 				}
 				c.messageQueue <- initMsg
-
-				for j := 0; j < int(c.config.ConfirmTimes-2); j++ {
-					updateMsg := &PotEvent{
-						Chain:   msg.Chain,
-						Event:   T_DEPOSIT_UPDATE,
-						Content: msg.Content,
-					}
-					c.messageQueue <- updateMsg
+				updateMsg := &PotEvent{
+					Chain:   msg.Chain,
+					Event:   T_DEPOSIT_UPDATE,
+					Content: msg.Content,
+					ID:      c.getEventID(c.height, val.Height, T_DEPOSIT_UPDATE, val.Index),
 				}
+				c.messageQueue <- updateMsg
 			}
 
 			msg.Event = T_DEPOSIT_CONFIRM
@@ -252,6 +225,7 @@ func (c *Chain) emitter() {
 			msg.Event = T_DEPOSIT_UPDATE
 			c.depositTxs.PushBack(val)
 		}
+		msg.ID = c.getEventID(c.height, val.Height, msg.Event, val.Index)
 		c.messageQueue <- msg
 	}
 
@@ -269,17 +243,16 @@ func (c *Chain) emitter() {
 					Chain:   msg.Chain,
 					Event:   T_WITHDRAW,
 					Content: msg.Content,
+					ID:      c.getEventID(c.height, val.Height, T_WITHDRAW, val.Index),
 				}
 				c.messageQueue <- initMsg
-
-				for j := 0; j < int(c.config.ConfirmTimes-2); j++ {
-					updateMsg := &PotEvent{
-						Chain:   msg.Chain,
-						Event:   T_WITHDRAW_UPDATE,
-						Content: msg.Content,
-					}
-					c.messageQueue <- updateMsg
+				updateMsg := &PotEvent{
+					Chain:   msg.Chain,
+					Event:   T_WITHDRAW_UPDATE,
+					Content: msg.Content,
+					ID:      c.getEventID(c.height, val.Height, T_WITHDRAW_UPDATE, val.Index),
 				}
+				c.messageQueue <- updateMsg
 			}
 
 			msg.Event = T_WITHDRAW_CONFIRM
@@ -293,6 +266,7 @@ func (c *Chain) emitter() {
 			msg.Event = T_WITHDRAW_UPDATE
 			c.withdrawTxs.PushBack(val)
 		}
+		msg.ID = c.getEventID(c.height, val.Height, msg.Event, val.Index)
 		c.messageQueue <- msg
 	}
 }
