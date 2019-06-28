@@ -6,7 +6,6 @@ import (
 	"github.com/fadeAce/claws"
 	"github.com/rs/zerolog/log"
 	"math/big"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -83,12 +82,6 @@ func newChain(opt *CoinConf, wallet claws.Wallet) *Chain {
 		ctx:          ctx,
 		cancel:       cancel,
 	}
-
-	var fp = cachePath + "/" + opt.Code
-	if _, err := os.Stat(fp); err != nil {
-		os.Mkdir(fp, 0755)
-	}
-
 	return chain
 }
 
