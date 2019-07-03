@@ -28,7 +28,7 @@ func TestChainpot_Ready(t *testing.T) {
 	}
 
 	var obj = &Chainpot{
-		chains: make([]*Chain, 128),
+		chains: make([]*chain, 128),
 		conf:   make(map[int]*CoinConf),
 	}
 	if path, err := filepath.Abs(conf.CachePath); err != nil {

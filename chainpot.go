@@ -45,7 +45,7 @@ func init() {
 }
 
 type Chainpot struct {
-	chains    []*Chain
+	chains    []*chain
 	conf      map[int]*CoinConf
 	onMessage MessageHandler
 }
@@ -72,7 +72,7 @@ func NewChainpot(conf *Config) *Chainpot {
 	}
 
 	var obj = &Chainpot{
-		chains: make([]*Chain, 128),
+		chains: make([]*chain, 128),
 		conf:   make(map[int]*CoinConf),
 	}
 	if path, err := filepath.Abs(conf.CachePath); err != nil {

@@ -2,11 +2,10 @@ package chainpot
 
 import (
 	"context"
-	"encoding/json"
+	"github.com/fadeAce/chainpot/poterr"
 	"github.com/fadeAce/claws"
 	"github.com/rs/zerolog/log"
 	"math/big"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +13,7 @@ import (
 
 type EventType int
 
+// chain consistent indicating event types
 const (
 	// NORMAL STATE
 	T_DEPOSIT EventType = iota
@@ -28,6 +28,7 @@ const (
 	T_ERROR
 )
 
+// pot event carrier
 type PotEvent struct {
 	Chain   string
 	Event   EventType
@@ -35,16 +36,8 @@ type PotEvent struct {
 	Content *BlockMessage
 }
 
-func (c *PotEvent) Next(e EventType) *PotEvent {
-	return &PotEvent{
-		Chain:   c.Chain,
-		Event:   e,
-		ID:      c.ID + 1,
-		Content: c.Content,
-	}
-}
-
-type Chain struct {
+// main structure for implement a set functions of a chain
+type chain struct {
 	*sync.Mutex
 	addrs          map[string]int64
 	syncedTxs      map[string]int64
@@ -63,12 +56,22 @@ type Chain struct {
 	cancel         context.CancelFunc
 }
 
-func newChain(opt *CoinConf, wallet claws.Wallet) *Chain {
+// pot event iterator
+func (c *PotEvent) Next(e EventType) *PotEvent {
+	return &PotEvent{
+		Chain:   c.Chain,
+		Event:   e,
+		ID:      c.ID + 1,
+		Content: c.Content,
+	}
+}
+
+func newChain(opt *CoinConf, wallet claws.Wallet) *chain {
 	ctx, cancel := context.WithCancel(context.Background())
 	stg := newStorage(opt.Code)
 	cache, addrs := getCacheConfig(opt.Code)
 	opt.Endpoint = cache.EndPoint
-	chain := &Chain{
+	chain := &chain{
 		Mutex:        &sync.Mutex{},
 		addrs:        addrs,
 		height:       opt.Endpoint,
@@ -86,13 +89,13 @@ func newChain(opt *CoinConf, wallet claws.Wallet) *Chain {
 	return chain
 }
 
-func (c *Chain) start() {
+func (c *chain) start() {
 	log.Info().Msgf("%s start", strings.ToUpper(c.config.Code))
 
 	go func() {
 		err := c.wallet.NotifyHead(c.ctx, func(num *big.Int) {
 			c.noticer <- num
-			//log.Info().Msgf("%s received new block from claws ", num.String())
+			log.Info().Msgf("%s received new block from claws ", num.String())
 			saveCacheConfig(c.config.Code, &cacheConfig{EndPoint: num.Int64()}, nil)
 		})
 		if err != nil {
@@ -135,8 +138,9 @@ func (c *Chain) start() {
 	}()
 }
 
+//
 // @param isNextHeight bool "if current height is bigger than last"
-func (c *Chain) syncBlock(num *big.Int, isOldBlock bool, isNextHeight bool) {
+func (c *chain) syncBlock(num *big.Int, isOldBlock bool, isNextHeight bool) {
 	var height = num.Int64()
 	if !isOldBlock {
 		c.storage.setEventID(height, c.eventID)
@@ -186,7 +190,7 @@ func (c *Chain) syncBlock(num *big.Int, isOldBlock bool, isNextHeight bool) {
 	}
 }
 
-func (c *Chain) syncEndpoint(endpoint int64, currentHeight int64) {
+func (c *chain) syncEndpoint(endpoint int64, currentHeight int64) {
 	if c.eventID == 0 {
 		c.eventID++
 	}
@@ -203,7 +207,7 @@ func (c *Chain) syncEndpoint(endpoint int64, currentHeight int64) {
 }
 
 // emit events
-func (c *Chain) emitter() {
+func (c *chain) emitter() {
 	var m = c.depositTxs.Len()
 	for i := 0; i < m; i++ {
 		var val = c.depositTxs.Front()
@@ -277,9 +281,12 @@ func (c *Chain) emitter() {
 	}
 }
 
-func (c *Chain) add(addrs []string) (records map[string]int64) {
+// add address to listen on chain
+func (c *chain) add(addrs []string) (records map[string]int64) {
 	c.Lock()
 	defer c.Unlock()
+
+	changed := make(map[string]int64)
 
 	records = make(map[string]int64)
 	for _, addr := range addrs {
@@ -288,22 +295,12 @@ func (c *Chain) add(addrs []string) (records map[string]int64) {
 		} else {
 			c.addrs[addr] = c.height
 			records[addr] = c.height
+			changed[addr] = c.height
 		}
 	}
-	saveAddrs(c.config.Code, records)
-	return records
-}
-
-func mustMarshal(v interface{}) string {
-	b, _ := json.Marshal(v)
-	return string(b)
-}
-
-func ToString(v interface{}) string {
-	if num, ok := v.(int); ok {
-		return strconv.Itoa(num)
-	} else if num, ok := v.(int64); ok {
-		return strconv.Itoa(int(num))
+	err := saveAddrs(c.config.Code, changed)
+	if err != nil {
+		log.Error().Str(poterr.ERR_API_ADD, err.Error())
 	}
-	return ""
+	return records
 }
