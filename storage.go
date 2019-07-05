@@ -130,7 +130,7 @@ func getCacheConfig(chain string) (cfg *cacheConfig, addrs map[string]int64) {
 	return
 }
 
-func saveCacheConfig(chain string, cfg *cacheConfig, addrs map[string]int64) {
+func saveCacheConfig(chain string, cfg *cacheConfig, addrs map[string]int64) error {
 	bs, _ := json.Marshal(cfg)
 	err1 := cfgDB.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte("config"))
@@ -161,6 +161,7 @@ func saveCacheConfig(chain string, cfg *cacheConfig, addrs map[string]int64) {
 	if err2 != nil {
 		log.Error().Msgf(err2.Error())
 	}
+	return nil
 }
 
 func saveAddrs(chain string, records map[string]int64) error {

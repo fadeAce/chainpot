@@ -54,7 +54,7 @@ func TestChainpot_Ready(t *testing.T) {
 	}
 
 	obj.Register(2)
-	pushBack(9, BlockMessage{
+	Pend(9, BlockMessage{
 		Hash:   "0xda29054d35d1af9d54e5e8aafce62fec11c716c8bef67508e2dc4ae5e3882ebb",
 		From:   "0x78ae889cd04cb9274c2600d68ccc5058f43db63e",
 		To:     "0x54a298ee9fccbf0ad8e55bc641d3086b81a48c41",

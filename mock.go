@@ -93,7 +93,7 @@ func (c *MaskWallet) Send(ctx context.Context, from, to types.Bundle, amount str
 	return nil, nil
 }
 
-func pushBack(height int64, tx BlockMessage) {
+func Pend(height int64, tx BlockMessage) {
 	arr, ok := testMsgs[height]
 	if !ok {
 		list := make([]BlockMessage, 0)

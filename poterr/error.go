@@ -1,5 +1,8 @@
 package poterr
 
-const (
-	ERR_API_ADD = "chainpot add error"
+import "errors"
+
+var (
+	AddErr = errors.New("chainpot add error")
+	RegErr = errors.New("chainpot register error")
 )

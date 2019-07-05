@@ -19,16 +19,25 @@ func NewQueue() *Queue {
 	return obj
 }
 
-func (c *Queue) Len() int {
-	return len(c.data)
+func (q *Queue) Len() int {
+	return len(q.data)
 }
 
-func (c *Queue) PushBack(v *Value) {
-	c.data = append(c.data, v)
+func (q *Queue) Pend(v *Value) {
+	q.data = append(q.data, v)
 }
 
-func (c *Queue) Front() *Value {
-	var val = c.data[0]
-	c.data = c.data[1:c.Len()]
+// todo: it occurs panic when no value's left
+func (q *Queue) Pop() *Value {
+	var val = q.data[0]
+	q.data = q.data[1:q.Len()]
 	return val
+}
+
+// safe with wrapped pop
+func (q *Queue) PopEach(f func(i int, v *Value)) {
+	var m = q.Len()
+	for i := 0; i < m; i++ {
+		f(i, q.Pop())
+	}
 }
