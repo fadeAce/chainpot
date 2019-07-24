@@ -57,8 +57,8 @@ type CoinConf struct {
 	ConfirmTimes int64
 	Endpoint     int64
 	// configuration for claws
-	Chain string
-	Symbol string
+	Chain           string
+	Typ             string
 	ContractAddress string
 }
 
@@ -106,10 +106,10 @@ func NewChainpot(conf *Config) *Chainpot {
 	coins := make([]types.Coins, 0)
 	for _, item := range conf.Coins {
 		coins = append(coins, types.Coins{
-			CoinType:     item.Code,
+			CoinType:     item.Typ,
 			Chain:        item.Chain,
 			ContractAddr: item.ContractAddress,
-			Symbol:       item.Symbol,
+			Symbol:       item.Code,
 		})
 	}
 
