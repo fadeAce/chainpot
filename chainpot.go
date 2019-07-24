@@ -51,16 +51,38 @@ type Chainpot struct {
 }
 
 type CoinConf struct {
+	// code used as coin type
 	Code         string
-	URL          string
 	Idx          int
 	ConfirmTimes int64
 	Endpoint     int64
+	// configuration for claws
+	Chain string
+	Symbol string
+	ContractAddress string
 }
 
 type Config struct {
 	CachePath string
 	Coins     []*CoinConf
+
+	// chain configuration
+	BtcConfig *BtcConfig
+
+	EthConfig *EthConfig
+}
+
+type BtcConfig struct {
+	Name     string
+	Url      string
+	User     string
+	Password string
+	Network  string
+}
+
+type EthConfig struct {
+	Name string
+	Url  string
 }
 
 type MessageHandler func(idx int, event *PotEvent)
@@ -83,13 +105,40 @@ func NewChainpot(conf *Config) *Chainpot {
 
 	coins := make([]types.Coins, 0)
 	for _, item := range conf.Coins {
-		coins = append(coins, types.Coins{Url: item.URL, CoinType: item.Code})
+		coins = append(coins, types.Coins{
+			CoinType:     item.Code,
+			Chain:        item.Chain,
+			ContractAddr: item.ContractAddress,
+			Symbol:       item.Symbol,
+		})
+	}
+
+	// setup btc chain
+	var btcConf *types.BtcConf
+	if conf.BtcConfig != nil {
+		btcConf = &types.BtcConf{
+			Name:     conf.BtcConfig.Name,
+			Url:      conf.BtcConfig.Url,
+			User:     conf.BtcConfig.User,
+			Password: conf.BtcConfig.Password,
+			Network:  conf.BtcConfig.Network,
+		}
+	}
+	// setup eth chain
+	var ethConf *types.EthConf
+	if conf.EthConfig != nil {
+		ethConf = &types.EthConf{
+			Name: conf.EthConfig.Name,
+			Url:  conf.EthConfig.Url,
+		}
 	}
 
 	claws.SetupGate(&types.Claws{
 		Ctx:     context.TODO(),
 		Version: "0.0.1",
 		Coins:   coins,
+		Eth:     ethConf,
+		Btc:     btcConf,
 	}, nil)
 
 	for _, cfg := range conf.Coins {

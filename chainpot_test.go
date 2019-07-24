@@ -19,7 +19,7 @@ func TestChainpot_Ready(t *testing.T) {
 	conf := &Config{
 		CachePath: "./log",
 		Coins: []*CoinConf{
-			{Code: "mlgb", URL: "ws://localhost:8546", Idx: 2, ConfirmTimes: 3},
+			{Code: "mlgb", Idx: 2, ConfirmTimes: 3},
 		},
 	}
 	for i, _ := range conf.Coins {
@@ -39,7 +39,7 @@ func TestChainpot_Ready(t *testing.T) {
 
 	coins := make([]types.Coins, 0)
 	for _, item := range conf.Coins {
-		coins = append(coins, types.Coins{Url: item.URL, CoinType: item.Code})
+		coins = append(coins, types.Coins{CoinType: item.Code})
 	}
 
 	claws.SetupGate(&types.Claws{
@@ -75,7 +75,7 @@ func TestNewChainpot(t *testing.T) {
 	var cp = NewChainpot(&Config{
 		CachePath: "./log",
 		Coins: []*CoinConf{
-			{Code: "ETH", URL: "ws://localhost:8546", Idx: 1, ConfirmTimes: 7},
+			{Code: "ETH", Idx: 1, ConfirmTimes: 7},
 		},
 	})
 	cp.Register(1)
@@ -94,7 +94,7 @@ func TestChainpot_Add(t *testing.T) {
 	var cp = NewChainpot(&Config{
 		CachePath: "./log",
 		Coins: []*CoinConf{
-			{Code: "ETH", URL: "ws://localhost:8546", Idx: 1, ConfirmTimes: 7},
+			{Code: "ETH", Idx: 1, ConfirmTimes: 7},
 		},
 	})
 	cp.Register(1)
@@ -110,7 +110,7 @@ func TestChainpot_Register(t *testing.T) {
 	var cp = NewChainpot(&Config{
 		CachePath: "./log",
 		Coins: []*CoinConf{
-			{Code: "ETH", URL: "ws://localhost:8546", Idx: 1, ConfirmTimes: 7},
+			{Code: "ETH", Idx: 1, ConfirmTimes: 7},
 		},
 	})
 	cp.Register(1)
@@ -128,7 +128,7 @@ func TestChainpot_Reset(t *testing.T) {
 	var cp = NewChainpot(&Config{
 		CachePath: "./log",
 		Coins: []*CoinConf{
-			{Code: "ETH", URL: "ws://localhost:8546", Idx: 1, ConfirmTimes: 7},
+			{Code: "ETH", Idx: 1, ConfirmTimes: 7},
 		},
 	})
 	cp.Register(1)

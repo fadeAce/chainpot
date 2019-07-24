@@ -25,6 +25,11 @@ func (c *MaskBuilder) Build() claws.Wallet {
 
 type MaskWallet struct{}
 
+
+func (c *MaskWallet)LoadTransaction(s string) (tx types.Transaction, err error){
+	return nil, nil
+}
+
 func (c *MaskWallet) Type() string {
 	return "mlgb"
 }
