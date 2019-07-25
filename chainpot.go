@@ -9,7 +9,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 )
 
@@ -46,104 +45,54 @@ func init() {
 
 type Chainpot struct {
 	chains    []*chain
-	conf      map[int]*CoinConf
+	conf      map[int]*Coins
 	onMessage MessageHandler
-}
-
-type CoinConf struct {
-	// code used as coin type
-	Code         string
-	Idx          int
-	ConfirmTimes int64
-	Endpoint     int64
-	// configuration for claws
-	Chain           string
-	Typ             string
-	ContractAddress string
-}
-
-type Config struct {
-	CachePath string
-	Coins     []*CoinConf
-
-	// chain configuration
-	BtcConfig *BtcConfig
-
-	EthConfig *EthConfig
-}
-
-type BtcConfig struct {
-	Name     string
-	Url      string
-	User     string
-	Password string
-	Network  string
-}
-
-type EthConfig struct {
-	Name string
-	Url  string
 }
 
 type MessageHandler func(idx int, event *PotEvent)
 
-func NewChainpot(conf *Config) *Chainpot {
-	for i, _ := range conf.Coins {
-		item := conf.Coins[i]
-		item.Code = strings.ToLower(item.Code)
-	}
-
+func NewChainpot(conf *ChainConf) *Chainpot {
 	var obj = &Chainpot{
 		chains: make([]*chain, 128),
-		conf:   make(map[int]*CoinConf),
+		conf:   make(map[int]*Coins),
 	}
+	for i, _ := range conf.Coins {
+		item := conf.Coins[i]
+		obj.conf[item.Idx] = &item
+	}
+
 	if path, err := filepath.Abs(conf.CachePath); err != nil {
 		log.Fatal().Msgf(err.Error())
 	} else {
 		initStorage(path)
 	}
 
-	coins := make([]types.Coins, 0)
+	clawsConf := &types.Claws{
+		Ctx:     context.Background(),
+		Version: conf.Version,
+		Eth: &types.EthConf{
+			Name: conf.Eth.Name,
+			Url:  conf.Eth.Url,
+		},
+		Btc: &types.BtcConf{
+			Name:     conf.Btc.Name,
+			Url:      conf.Btc.Url,
+			User:     conf.Btc.User,
+			Password: conf.Btc.Password,
+			Network:  conf.Btc.Network,
+		},
+		Coins: make([]types.Coins, 0),
+	}
 	for _, item := range conf.Coins {
-		coins = append(coins, types.Coins{
-			CoinType:     item.Typ,
+		clawsConf.Coins = append(clawsConf.Coins, types.Coins{
+			CoinType:     item.CoinType,
 			Chain:        item.Chain,
-			ContractAddr: item.ContractAddress,
-			Symbol:       item.Code,
+			Symbol:       item.Symbol,
+			ContractAddr: item.ContractAddr,
 		})
 	}
+	claws.SetupGate(clawsConf, nil)
 
-	// setup btc chain
-	var btcConf *types.BtcConf
-	if conf.BtcConfig != nil {
-		btcConf = &types.BtcConf{
-			Name:     conf.BtcConfig.Name,
-			Url:      conf.BtcConfig.Url,
-			User:     conf.BtcConfig.User,
-			Password: conf.BtcConfig.Password,
-			Network:  conf.BtcConfig.Network,
-		}
-	}
-	// setup eth chain
-	var ethConf *types.EthConf
-	if conf.EthConfig != nil {
-		ethConf = &types.EthConf{
-			Name: conf.EthConfig.Name,
-			Url:  conf.EthConfig.Url,
-		}
-	}
-
-	claws.SetupGate(&types.Claws{
-		Ctx:     context.TODO(),
-		Version: "0.0.1",
-		Coins:   coins,
-		Eth:     ethConf,
-		Btc:     btcConf,
-	}, nil)
-
-	for _, cfg := range conf.Coins {
-		obj.conf[cfg.Idx] = cfg
-	}
 	return obj
 }
 
@@ -157,7 +106,7 @@ func (c *Chainpot) Register(idx int) error {
 		return errors.New("repeat register")
 	}
 
-	var wallet = claws.Builder.BuildWallet(opt.Code)
+	var wallet = claws.Builder.BuildWallet(opt.Symbol)
 	var chain = newChain(opt, wallet)
 	c.chains[opt.Idx] = chain
 	chain.onMessage = func(msg *PotEvent) {
@@ -209,7 +158,7 @@ func (c *Chainpot) Reset(idx ...int) {
 
 		for i, _ := range c.chains {
 			if c.chains[i] != nil {
-				clearCacheConfig(c.chains[i].config.Code)
+				clearCacheConfig(c.chains[i].config.Symbol)
 				c.chains[i] = nil
 			}
 		}
@@ -225,7 +174,7 @@ func (c *Chainpot) Reset(idx ...int) {
 	wg.Wait()
 	for _, i := range idx {
 		if c.chains[i] != nil {
-			clearCacheConfig(c.chains[i].config.Code)
+			clearCacheConfig(c.chains[i].config.Symbol)
 			c.chains[i] = nil
 		}
 	}
