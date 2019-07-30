@@ -53,19 +53,24 @@ func NewChainpot(conf *ChainConf) *Chainpot {
 	clawsConf := &types.Claws{
 		Ctx:     context.Background(),
 		Version: conf.Version,
-		Eth: &types.EthConf{
-			Name: conf.Eth.Name,
-			Url:  conf.Eth.Url,
-		},
-		Btc: &types.BtcConf{
+		Coins:   make([]types.Coins, 0),
+	}
+	if conf.Btc != nil {
+		clawsConf.Btc = &types.BtcConf{
 			Name:     conf.Btc.Name,
 			Url:      conf.Btc.Url,
 			User:     conf.Btc.User,
 			Password: conf.Btc.Password,
 			Network:  conf.Btc.Network,
-		},
-		Coins: make([]types.Coins, 0),
+		}
 	}
+	if conf.Eth != nil {
+		clawsConf.Eth = &types.EthConf{
+			Name: conf.Eth.Name,
+			Url:  conf.Eth.Url,
+		}
+	}
+
 	for _, item := range conf.Coins {
 		clawsConf.Coins = append(clawsConf.Coins, types.Coins{
 			CoinType:     item.CoinType,
