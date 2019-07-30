@@ -12,9 +12,6 @@ type ChainConf struct {
 }
 
 type Coins struct {
-	Idx          int
-	Endpoint     int64
-	ConfirmTimes int64
 	CoinType     string `yaml:"type"`
 	Chain        string `yaml:"chain"`
 	ContractAddr string `yaml:"contract_addr"`
@@ -22,14 +19,18 @@ type Coins struct {
 }
 
 type EthConf struct {
-	Name string `yaml:"name"`
-	Url  string `yaml:"url"`
+	Name         string `yaml:"name"`
+	Url          string `yaml:"url"`
+	ConfirmTimes int64
+	Endpoint     int64
 }
 
 type BtcConf struct {
-	Name     string `yaml:"name"`
-	Url      string `yaml:"url"`
-	User     string `yml:"user"`
-	Password string `yml:"password"`
-	Network  string `yml:"network"`
+	Name         string `yaml:"name"`
+	Url          string `yaml:"url"`
+	User         string `yml:"user"`
+	Password     string `yml:"password"`
+	Network      string `yml:"network"`
+	ConfirmTimes int64
+	Endpoint     int64
 }

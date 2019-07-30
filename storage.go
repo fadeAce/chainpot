@@ -19,6 +19,7 @@ type storage struct {
 
 type cacheConfig struct {
 	EndPoint int64
+	EventID  int64
 }
 
 var (
@@ -75,38 +76,6 @@ func newStorage(chain string) *storage {
 	}
 
 	return obj
-}
-
-func (c *storage) setEventID(height int64, id int64) error {
-	k := []byte(ToString(height))
-	v := []byte(ToString(id))
-	err := c.DB.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket([]byte("height_eventid"))
-		return bucket.Put(k, v)
-	})
-	if err != nil {
-		log.Error().Msgf("Set EventID Error: %s", err.Error())
-	}
-	return err
-}
-
-func (c *storage) getEventID(height int64) (event_id int64, e error) {
-	k := []byte(ToString(height))
-	err := c.DB.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket([]byte("height_eventid"))
-		bs := bucket.Get(k)
-		if len(bs) == 0 {
-			event_id = 1
-		} else {
-			id, _ := strconv.Atoi(string(bs))
-			event_id = int64(id)
-		}
-		return nil
-	})
-	if err != nil {
-		log.Error().Msgf("Set EventID Error: %s", err.Error())
-	}
-	return event_id, err
 }
 
 func getCacheConfig(chain string) (cfg *cacheConfig, addrs map[string]int64) {

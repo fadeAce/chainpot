@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/fadeAce/chainpot/poterr"
 	"github.com/fadeAce/claws"
+	"github.com/fadeAce/claws/types"
 	"github.com/rs/zerolog/log"
 	"math/big"
 	"strings"
@@ -29,21 +30,27 @@ const (
 
 // pot event carrier
 type PotEvent struct {
-	Chain   string
-	Event   EventType
-	ID      int64
-	Content *BlockMessage
+	Symbol   string
+	Chain    string
+	CoinType string
+	Event    EventType
+	ID       int64
+	Content  *BlockMessage
+}
+
+type contract struct {
+	*Coins
+	wallet claws.Wallet
 }
 
 // main structure for implement a set functions of a chain
 type chain struct {
 	*sync.Mutex
+	origin         *contract
+	contracts      []*contract
 	addrs          map[string]int64
-	config         *Coins
-	height         int64
 	eventID        int64
 	syncedEndPoint bool
-	wallet         claws.Wallet
 	depositTxs     *Queue
 	withdrawTxs    *Queue
 	storage        *storage
@@ -52,29 +59,41 @@ type chain struct {
 	messageQueue   chan *PotEvent
 	ctx            context.Context
 	cancel         context.CancelFunc
+	height         int64
+	confirmTimes   int64
+	endpoint       int64
 }
 
 // pot event iterator
 func (c *PotEvent) Next(e EventType) *PotEvent {
 	return &PotEvent{
-		Chain:   c.Chain,
+		Symbol:  c.Symbol,
 		Event:   e,
 		ID:      c.ID + 1,
 		Content: c.Content,
 	}
 }
 
-func newChain(opt *Coins, wallet claws.Wallet) *chain {
+type chain_option struct {
+	ChainName    string
+	Contracts    []*Coins
+	ConfirmTimes int64
+	Endpoint     int64
+}
+
+func newChain(opt *chain_option) *chain {
 	ctx, cancel := context.WithCancel(context.Background())
-	stg := newStorage(opt.Symbol)
-	cache, addrs := getCacheConfig(opt.Symbol)
-	opt.Endpoint = cache.EndPoint
+	stg := newStorage(opt.ChainName)
+	cache, addrs := getCacheConfig(opt.ChainName)
+
 	chain := &chain{
-		Mutex:  &sync.Mutex{},
-		addrs:  addrs,
-		height: opt.Endpoint,
-		config: opt,
-		wallet: wallet,
+		Mutex:        &sync.Mutex{},
+		contracts:    make([]*contract, 0),
+		addrs:        addrs,
+		height:       opt.Endpoint,
+		confirmTimes: opt.ConfirmTimes,
+		endpoint:     cache.EndPoint,
+		eventID:      cache.EventID,
 		// todo: 128 is not quiet sufficient for concurrent consideration , need a much more flexible capacity
 		messageQueue: make(chan *PotEvent, 128),
 		depositTxs:   NewQueue(),
@@ -84,20 +103,38 @@ func newChain(opt *Coins, wallet claws.Wallet) *chain {
 		ctx:          ctx,
 		cancel:       cancel,
 	}
+
+	for _, item := range opt.Contracts {
+		if item.Chain == opt.ChainName {
+			var obj = &contract{
+				wallet: claws.Builder.BuildWallet(item.Symbol),
+				Coins:  item,
+			}
+			if item.CoinType == "origin" {
+				chain.origin = obj
+			} else {
+				chain.contracts = append(chain.contracts, obj)
+			}
+		}
+	}
+
 	return chain
 }
 
 func (c *chain) start() {
-	log.Info().Msgf("%s start", strings.ToUpper(c.config.Symbol))
+	log.Info().Msgf("%s start", strings.ToUpper(c.origin.Chain))
 
 	go func() {
-		err := c.wallet.NotifyHead(c.ctx, func(num *big.Int) {
-			var height = num.Int64() - 1
+		err := c.origin.wallet.NotifyHead(c.ctx, func(num *big.Int) {
+			var height = num.Int64()
+			if c.origin.Chain == "eth" {
+				height--
+			}
 			if height > c.height {
 				c.height = height
 				c.noticer <- big.NewInt(height)
 				log.Info().Msgf("%d received new block from claws ", height)
-				saveCacheConfig(c.config.Symbol, &cacheConfig{EndPoint: height}, nil)
+				saveCacheConfig(c.origin.Chain, &cacheConfig{EndPoint: height, EventID: c.eventID}, nil)
 			}
 		})
 		if err != nil {
@@ -109,14 +146,19 @@ func (c *chain) start() {
 		for {
 			select {
 			case <-c.ctx.Done():
-				saveCacheConfig(c.config.Symbol, &cacheConfig{EndPoint: c.height}, c.addrs)
+				saveCacheConfig(c.origin.Chain, &cacheConfig{EndPoint: c.height}, c.addrs)
 				wg.Done()
-				log.Info().Msgf("%s stopped, endpoint: %d", strings.ToUpper(c.config.Symbol), c.height)
+				log.Info().Msgf("%s stopped, endpoint: %d", strings.ToUpper(c.origin.Chain), c.height)
 				return
 			case num := <-c.noticer:
 				height := num.Int64()
-				c.syncEndpoint(c.config.Endpoint, height)
-				c.syncBlock(num, false)
+				c.syncEndpoint(c.origin, height)
+				c.syncBlock(c.origin, num, false)
+				for _, item := range c.contracts {
+					c.syncEndpoint(item, height)
+					c.syncBlock(item, num, false)
+				}
+				c.emitter()
 			case event := <-c.messageQueue:
 				log.Debug().Msgf("New Event: %s", mustMarshal(event))
 				c.onMessage(event)
@@ -128,65 +170,63 @@ func (c *chain) start() {
 
 //
 // @param isNextHeight bool "if current height is bigger than last"
-func (c *chain) syncBlock(num *big.Int, isOldBlock bool) {
+func (c *chain) syncBlock(cont *contract, num *big.Int, isOldBlock bool) {
 	var height = num.Int64()
 	// todo: shouldn't depend on syncing noticer but height calculation | or maybe suitable because of suitability
-	if !isOldBlock {
-		c.storage.setEventID(height, c.eventID)
-	}
+	//if cont.CoinType == "origin" {
+	//	log.Info().Msgf("%s Synchronizing Block: %d", strings.ToUpper(c.origin.Chain), height)
+	//}
 
-	log.Info().Msgf("%s Synchronizing Block: %d", strings.ToUpper(c.config.Symbol), height)
-	txns, err := c.wallet.UnfoldTxs(context.Background(), num)
+	txns, err := cont.wallet.UnfoldTxs(context.Background(), num)
 	if err != nil {
 		return
 	}
 
 	for i, _ := range txns {
 		var tx = txns[i]
+		if cont.CoinType == "origin" && c.isContractTx(tx) {
+			continue
+		}
+
 		var _, f1 = c.addrs[tx.FromStr()]
 		var _, f2 = c.addrs[tx.ToStr()]
 		if !f1 && !f2 {
 			continue
 		}
 
-		var node = &Value{TXN: tx, Height: height, Index: int64(i), IsOldBlock: isOldBlock, EventID: c.eventID}
+		var node = &Value{TXN: tx, Height: height, Index: int64(i), IsOldBlock: isOldBlock, EventID: c.eventID, Contract: cont}
 		if tx.FromStr() == tx.ToStr() {
 			c.messageQueue <- &PotEvent{
-				Chain: c.config.Symbol,
-				Event: T_ERROR,
+				Symbol: c.origin.Symbol,
+				Event:  T_ERROR,
 			}
 		} else if f1 && f2 {
 			c.withdrawTxs.Pend(node)
-			c.eventID += c.config.ConfirmTimes
+			c.eventID += c.confirmTimes
 			var cp = *node
 
 			c.depositTxs.Pend(&cp)
-			c.eventID += c.config.ConfirmTimes
+			c.eventID += c.confirmTimes
 		} else if f1 {
 			c.withdrawTxs.Pend(node)
-			c.eventID += c.config.ConfirmTimes
+			c.eventID += c.confirmTimes
 		} else if f2 {
 			c.depositTxs.Pend(node)
-			c.eventID += c.config.ConfirmTimes
+			c.eventID += c.confirmTimes
 		}
 	}
-
-	c.emitter()
 }
 
-func (c *chain) syncEndpoint(endpoint int64, currentHeight int64) {
+func (c *chain) syncEndpoint(cont *contract, currentHeight int64) {
 	if c.eventID == 0 {
 		c.eventID++
 	}
-	if c.syncedEndPoint || c.config.Endpoint <= 0 {
+	if c.syncedEndPoint || c.endpoint <= 0 {
 		return
 	}
 
-	// todo: reorg here may not be quiet suitable
-	id, _ := c.storage.getEventID(endpoint - c.config.ConfirmTimes)
-	c.eventID = id
-	for i := endpoint - c.config.ConfirmTimes; i < currentHeight; i++ {
-		c.syncBlock(big.NewInt(i), true)
+	for i := c.endpoint - c.confirmTimes; i < currentHeight; i++ {
+		c.syncBlock(cont, big.NewInt(i), true)
 	}
 	c.syncedEndPoint = true
 }
@@ -195,16 +235,18 @@ func (c *chain) syncEndpoint(endpoint int64, currentHeight int64) {
 func (c *chain) emitter() {
 	c.depositTxs.PopEach(func(i int, val *Value) {
 		var event = &PotEvent{
-			Chain:   c.config.Symbol,
-			Content: NewBlockMessage(val.TXN),
-			ID:      val.EventID,
+			Chain:    val.Contract.Chain,
+			CoinType: val.Contract.CoinType,
+			Symbol:   val.Contract.Symbol,
+			Content:  NewBlockMessage(val.TXN),
+			ID:       val.EventID,
 		}
 
 		// todo: if coming block is not a new block, it need a check event is processing
 		if val.IsOldBlock {
 			event.Event = T_DEPOSIT
 			c.messageQueue <- event
-			for j := 0; j < int(c.config.ConfirmTimes-2); j++ {
+			for j := 0; j < int(c.confirmTimes-2); j++ {
 				event = event.Next(T_DEPOSIT_UPDATE)
 				c.messageQueue <- event
 			}
@@ -212,9 +254,9 @@ func (c *chain) emitter() {
 			return
 		}
 
-		if c.height-val.Height+1 >= c.config.ConfirmTimes {
+		if c.height-val.Height+1 >= c.confirmTimes {
 			event = event.Next(T_DEPOSIT_CONFIRM)
-			if !c.wallet.Seek(val.TXN) {
+			if !val.Contract.wallet.Seek(val.TXN) {
 				return
 			}
 		} else if c.height-val.Height == 0 {
@@ -230,15 +272,17 @@ func (c *chain) emitter() {
 
 	c.withdrawTxs.PopEach(func(i int, val *Value) {
 		var event = &PotEvent{
-			Chain:   c.config.Symbol,
-			Content: NewBlockMessage(val.TXN),
-			ID:      val.EventID,
+			Chain:    val.Contract.Chain,
+			CoinType: val.Contract.CoinType,
+			Symbol:   val.Contract.Symbol,
+			Content:  NewBlockMessage(val.TXN),
+			ID:       val.EventID,
 		}
 
 		if val.IsOldBlock {
 			event.Event = T_WITHDRAW
 			c.messageQueue <- event
-			for j := 0; j < int(c.config.ConfirmTimes-2); j++ {
+			for j := 0; j < int(c.confirmTimes-2); j++ {
 				event = event.Next(T_WITHDRAW_UPDATE)
 				c.messageQueue <- event
 			}
@@ -246,9 +290,9 @@ func (c *chain) emitter() {
 			return
 		}
 
-		if c.height-val.Height+1 >= c.config.ConfirmTimes {
+		if c.height-val.Height+1 >= c.confirmTimes {
 			event = event.Next(T_WITHDRAW_CONFIRM)
-			if !c.wallet.Seek(val.TXN) {
+			if !val.Contract.wallet.Seek(val.TXN) {
 				return
 			}
 		} else if c.height-val.Height == 0 {
@@ -280,9 +324,20 @@ func (c *chain) add(addrs []string) (records map[string]int64) {
 			changed[addr] = c.height
 		}
 	}
-	err := saveAddrs(c.config.Symbol, changed)
+	err := saveAddrs(c.origin.Chain, changed)
 	if err != nil {
 		log.Error().Str(poterr.AddErr.Error(), err.Error())
 	}
 	return records
+}
+
+func (c *chain) isContractTx(tx types.TXN) bool {
+	var sig = false
+	for _, item := range c.contracts {
+		if item.ContractAddr == tx.ToStr() {
+			sig = true
+			break
+		}
+	}
+	return sig
 }

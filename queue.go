@@ -11,6 +11,7 @@ type Value struct {
 	Height     int64
 	Index      int64
 	EventID    int64
+	Contract   *contract
 	IsOldBlock bool
 }
 
