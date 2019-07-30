@@ -5,90 +5,74 @@ import (
 	"fmt"
 	"github.com/boltdb/bolt"
 	"github.com/rs/zerolog/log"
+	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 )
 
-type storage struct {
-	*sync.Mutex
-	DB    *bolt.DB
-	Path  string
-	Chain string
-}
-
-type cacheConfig struct {
+type ConfigCache struct {
 	EndPoint int64
 	EventID  int64
 }
 
-var (
-	cachePath string
-	cfgDB     *bolt.DB
-)
-
-func initStorage(path string) {
-	cachePath = path
-	db, openError := bolt.Open(cachePath+"/cache.db", 0755, nil)
-	if openError != nil {
-		log.Fatal().Msg(openError.Error())
-		return
-	}
-
-	updateError := db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte("config"))
-		return err
-	})
-	if updateError != nil {
-		log.Error().Msg(updateError.Error())
-	}
-	cfgDB = db
+type Storage interface {
+	GetConfig() (cache *ConfigCache, addrs map[string]int64)
+	SaveConfig(cache *ConfigCache, addrs map[string]int64) error
+	SaveAddrs(records map[string]int64) error
+	ClearConfig() error
 }
 
-func newStorage(chain string) *storage {
-	var obj = &storage{
-		Chain: chain,
-		Mutex: &sync.Mutex{},
+type BoltStorage struct {
+	Chain    string
+	Database *bolt.DB
+}
+
+func NewBoltStorage(dbPath string, chain string) Storage {
+	var obj = &BoltStorage{
+		Chain: strings.ToLower(chain),
 	}
-	var filename = fmt.Sprintf("%s/%s.db", cachePath, chain)
+	absPath, err := filepath.Abs(dbPath)
+	if err != nil {
+		panic("db_path error")
+	}
+
+	var filename = fmt.Sprintf("%s/%s.db", absPath, chain)
 	if db, err := bolt.Open(filename, 0755, nil); err == nil {
-		obj.DB = db
+		obj.Database = db
 	} else {
 		log.Fatal().Msgf("Open DB Error: %s", err.Error())
 	}
 
-	if err := obj.DB.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte("height_eventid"))
+	if err := obj.Database.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte("config"))
 		return err
 	}); err != nil {
 		log.Fatal().Msgf("Create Bucket Error: %s", err.Error())
 	}
 
-	err := cfgDB.Update(func(tx *bolt.Tx) error {
-		bucket := fmt.Sprintf("%s_addrs", strings.ToLower(chain))
-		if _, err := tx.CreateBucketIfNotExists([]byte(bucket)); err != nil {
+	if err := obj.Database.Update(func(tx *bolt.Tx) error {
+		if _, err := tx.CreateBucketIfNotExists([]byte("addrs")); err != nil {
 			return err
 		}
 		return nil
-	})
-	if err != nil {
-		log.Error().Msgf("BoltDB Register Chain Error: %s", err.Error())
+	}); err != nil {
+		log.Fatal().Msgf("Create Bucket Error: %s", err.Error())
 	}
 
 	return obj
 }
 
-func getCacheConfig(chain string) (cfg *cacheConfig, addrs map[string]int64) {
-	cfg = &cacheConfig{}
-	cfgDB.View(func(tx *bolt.Tx) error {
+func (c *BoltStorage) GetConfig() (cfg *ConfigCache, addrs map[string]int64) {
+	cfg = &ConfigCache{}
+	c.Database.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte("config"))
-		bs := bucket.Get([]byte(chain))
+		bs := bucket.Get([]byte(c.Chain))
 		return json.Unmarshal(bs, cfg)
 	})
 
 	addrs = make(map[string]int64)
-	cfgDB.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket([]byte(fmt.Sprintf("%s_addrs", strings.ToLower(chain))))
+	c.Database.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte("addrs"))
 		return bucket.ForEach(func(k, v []byte) error {
 			key := string(k)
 			val, _ := strconv.Atoi(string(v))
@@ -99,11 +83,11 @@ func getCacheConfig(chain string) (cfg *cacheConfig, addrs map[string]int64) {
 	return
 }
 
-func saveCacheConfig(chain string, cfg *cacheConfig, addrs map[string]int64) error {
+func (c *BoltStorage) SaveConfig(cfg *ConfigCache, addrs map[string]int64) error {
 	bs, _ := json.Marshal(cfg)
-	err1 := cfgDB.Update(func(tx *bolt.Tx) error {
+	err1 := c.Database.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte("config"))
-		err := bucket.Put([]byte(chain), bs)
+		err := bucket.Put([]byte(c.Chain), bs)
 		if err != nil {
 			log.Error().Msg(err.Error())
 		}
@@ -113,8 +97,8 @@ func saveCacheConfig(chain string, cfg *cacheConfig, addrs map[string]int64) err
 		log.Error().Msgf(err1.Error())
 	}
 
-	err2 := cfgDB.Update(func(tx *bolt.Tx) error {
-		bucketName := []byte(fmt.Sprintf("%s_addrs", strings.ToLower(chain)))
+	err2 := c.Database.Update(func(tx *bolt.Tx) error {
+		bucketName := []byte(fmt.Sprintf("%s_addrs", strings.ToLower(c.Chain)))
 		bucket := tx.Bucket(bucketName)
 		var hasError error
 		for key, val := range addrs {
@@ -133,10 +117,9 @@ func saveCacheConfig(chain string, cfg *cacheConfig, addrs map[string]int64) err
 	return nil
 }
 
-func saveAddrs(chain string, records map[string]int64) error {
-	err := cfgDB.Update(func(tx *bolt.Tx) error {
-		bucketName := []byte(fmt.Sprintf("%s_addrs", strings.ToLower(chain)))
-		bucket := tx.Bucket(bucketName)
+func (c *BoltStorage) SaveAddrs(records map[string]int64) error {
+	err := c.Database.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte("addrs"))
 		var hasError error
 		for addr, height := range records {
 			h := strconv.Itoa(int(height))
@@ -154,35 +137,20 @@ func saveAddrs(chain string, records map[string]int64) error {
 	return err
 }
 
-func clearCacheConfig(chain string) (err error) {
-	err1 := cfgDB.Update(func(tx *bolt.Tx) error {
+func (c *BoltStorage) ClearConfig() error {
+	err := c.Database.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte("config"))
-		return bucket.Delete([]byte(chain))
+		return bucket.Delete([]byte(c.Chain))
 	})
-	if err1 != nil {
-		log.Error().Msg(err1.Error())
+	if err != nil {
+		return err
 	}
 
-	err2 := cfgDB.Update(func(tx *bolt.Tx) error {
-		bucketName := []byte(fmt.Sprintf("%s_addrs", strings.ToLower(chain)))
+	err = c.Database.Update(func(tx *bolt.Tx) error {
+		bucketName := []byte("addrs")
 		err := tx.DeleteBucket(bucketName)
 		tx.CreateBucketIfNotExists(bucketName)
 		return err
 	})
-	if err2 != nil {
-		err = err2
-		log.Error().Msg(err2.Error())
-	}
 	return err
-}
-
-func encode(block []*BlockMessage) []byte {
-	data, _ := json.Marshal(block)
-	return data
-}
-
-func decode(data []byte) []*BlockMessage {
-	var obj = make([]*BlockMessage, 0)
-	json.Unmarshal(data, &obj)
-	return obj
 }

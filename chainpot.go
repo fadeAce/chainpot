@@ -6,9 +6,7 @@ import (
 	"github.com/fadeAce/claws"
 	"github.com/fadeAce/claws/types"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"os"
-	"path/filepath"
 	"sync"
 )
 
@@ -52,12 +50,6 @@ func NewChainpot(conf *ChainConf) *Chainpot {
 		conf:   conf,
 	}
 
-	if path, err := filepath.Abs(conf.CachePath); err != nil {
-		log.Fatal().Msgf(err.Error())
-	} else {
-		initStorage(path)
-	}
-
 	clawsConf := &types.Claws{
 		Ctx:     context.Background(),
 		Version: conf.Version,
@@ -91,12 +83,15 @@ func (c *Chainpot) Register(chain PubLicChain) error {
 	var chainName string
 	var confirmTimes int64
 	var contracts = make([]*Coins, 0)
+	var storage Storage
 
 	if chain == Ethereum {
 		confirmTimes = c.conf.Eth.ConfirmTimes
+		storage = c.conf.Eth.Storage
 		chainName = "eth"
 	} else if chain == Bitcoin {
 		confirmTimes = c.conf.Btc.ConfirmTimes
+		storage = c.conf.Btc.Storage
 		chainName = "btc"
 	}
 	for i, _ := range c.conf.Coins {
@@ -112,6 +107,7 @@ func (c *Chainpot) Register(chain PubLicChain) error {
 		ChainName:    chainName,
 		ConfirmTimes: confirmTimes,
 		Contracts:    contracts,
+		Storage:      storage,
 	})
 
 	c.chains[idx] = obj
@@ -162,7 +158,7 @@ func (c *Chainpot) Reset(idx ...int) {
 
 		for i, _ := range c.chains {
 			if c.chains[i] != nil {
-				clearCacheConfig(c.chains[i].origin.Chain)
+				c.chains[i].storage.ClearConfig()
 				c.chains[i] = nil
 			}
 		}
@@ -178,7 +174,7 @@ func (c *Chainpot) Reset(idx ...int) {
 	wg.Wait()
 	for _, i := range idx {
 		if c.chains[i] != nil {
-			clearCacheConfig(c.chains[i].origin.Symbol)
+			c.chains[i].storage.ClearConfig()
 			c.chains[i] = nil
 		}
 	}

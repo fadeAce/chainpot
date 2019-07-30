@@ -53,7 +53,7 @@ type chain struct {
 	syncedEndPoint bool
 	depositTxs     *Queue
 	withdrawTxs    *Queue
-	storage        *storage
+	storage        Storage
 	noticer        chan *big.Int
 	onMessage      func(msg *PotEvent)
 	messageQueue   chan *PotEvent
@@ -67,10 +67,12 @@ type chain struct {
 // pot event iterator
 func (c *PotEvent) Next(e EventType) *PotEvent {
 	return &PotEvent{
-		Symbol:  c.Symbol,
-		Event:   e,
-		ID:      c.ID + 1,
-		Content: c.Content,
+		Symbol:   c.Symbol,
+		Chain:    c.Chain,
+		CoinType: c.CoinType,
+		Event:    e,
+		ID:       c.ID + 1,
+		Content:  c.Content,
 	}
 }
 
@@ -79,12 +81,12 @@ type chain_option struct {
 	Contracts    []*Coins
 	ConfirmTimes int64
 	Endpoint     int64
+	Storage      Storage
 }
 
 func newChain(opt *chain_option) *chain {
 	ctx, cancel := context.WithCancel(context.Background())
-	stg := newStorage(opt.ChainName)
-	cache, addrs := getCacheConfig(opt.ChainName)
+	cache, addrs := opt.Storage.GetConfig()
 
 	chain := &chain{
 		Mutex:        &sync.Mutex{},
@@ -98,7 +100,7 @@ func newChain(opt *chain_option) *chain {
 		messageQueue: make(chan *PotEvent, 128),
 		depositTxs:   NewQueue(),
 		withdrawTxs:  NewQueue(),
-		storage:      stg,
+		storage:      opt.Storage,
 		noticer:      make(chan *big.Int, 128),
 		ctx:          ctx,
 		cancel:       cancel,
@@ -134,7 +136,7 @@ func (c *chain) start() {
 				c.height = height
 				c.noticer <- big.NewInt(height)
 				log.Info().Msgf("%d received new block from claws ", height)
-				saveCacheConfig(c.origin.Chain, &cacheConfig{EndPoint: height, EventID: c.eventID}, nil)
+				c.storage.SaveConfig(&ConfigCache{EndPoint: height, EventID: c.eventID}, nil)
 			}
 		})
 		if err != nil {
@@ -146,7 +148,7 @@ func (c *chain) start() {
 		for {
 			select {
 			case <-c.ctx.Done():
-				saveCacheConfig(c.origin.Chain, &cacheConfig{EndPoint: c.height}, c.addrs)
+				c.storage.SaveConfig(&ConfigCache{EndPoint: c.height}, c.addrs)
 				wg.Done()
 				log.Info().Msgf("%s stopped, endpoint: %d", strings.ToUpper(c.origin.Chain), c.height)
 				return
@@ -324,7 +326,7 @@ func (c *chain) add(addrs []string) (records map[string]int64) {
 			changed[addr] = c.height
 		}
 	}
-	err := saveAddrs(c.origin.Chain, changed)
+	err := c.storage.SaveAddrs(changed)
 	if err != nil {
 		log.Error().Str(poterr.AddErr.Error(), err.Error())
 	}

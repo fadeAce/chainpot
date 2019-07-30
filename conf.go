@@ -23,6 +23,7 @@ type EthConf struct {
 	Url          string `yaml:"url"`
 	ConfirmTimes int64
 	Endpoint     int64
+	Storage      Storage
 }
 
 type BtcConf struct {
@@ -33,4 +34,5 @@ type BtcConf struct {
 	Network      string `yml:"network"`
 	ConfirmTimes int64
 	Endpoint     int64
+	Storage      Storage
 }
