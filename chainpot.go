@@ -10,10 +10,10 @@ import (
 	"sync"
 )
 
-type PubLicChain uint8
+type PublicChain uint8
 
 const (
-	Bitcoin PubLicChain = iota
+	Bitcoin PublicChain = iota
 	Ethereum
 )
 
@@ -42,7 +42,7 @@ type Chainpot struct {
 	onMessage MessageHandler
 }
 
-type MessageHandler func(chain PubLicChain, event *PotEvent)
+type MessageHandler func(chain PublicChain, event *PotEvent)
 
 func NewChainpot(conf *ChainConf) *Chainpot {
 	var obj = &Chainpot{
@@ -79,7 +79,7 @@ func NewChainpot(conf *ChainConf) *Chainpot {
 	return obj
 }
 
-func (c *Chainpot) Register(chain PubLicChain) error {
+func (c *Chainpot) Register(chain PublicChain) error {
 	var chainName string
 	var confirmTimes int64
 	var contracts = make([]*Coins, 0)
@@ -118,7 +118,7 @@ func (c *Chainpot) Register(chain PubLicChain) error {
 	return nil
 }
 
-func (c *Chainpot) Add(chain PubLicChain, addrs []string) map[string]int64 {
+func (c *Chainpot) Add(chain PublicChain, addrs []string) map[string]int64 {
 	var idx = int(chain)
 	obj := c.chains[idx]
 	if obj != nil {
@@ -138,7 +138,7 @@ func (c *Chainpot) Start(fn MessageHandler) {
 }
 
 // // if chain matched idx has been registered return true otherwise return false
-func (c *Chainpot) Ready(chain PubLicChain) bool {
+func (c *Chainpot) Ready(chain PublicChain) bool {
 	var idx = int(chain)
 	return c.chains[idx] != nil
 }

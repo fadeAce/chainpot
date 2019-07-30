@@ -3,12 +3,12 @@ package chainpot
 import "context"
 
 type ChainConf struct {
-	CachePath string
-	Ctx       context.Context
-	Version   string   `yaml:"version"`
-	Coins     []Coins  `yaml:"coins"`
-	Eth       *EthConf `yaml:"chain_ethereum"`
-	Btc       *BtcConf `yaml:"chain_bitcoin"`
+	//CachePath string
+	Ctx     context.Context
+	Version string   `yaml:"version"`
+	Coins   []Coins  `yaml:"coins"`
+	Eth     *EthConf `yaml:"chain_ethereum"`
+	Btc     *BtcConf `yaml:"chain_bitcoin"`
 }
 
 type Coins struct {
